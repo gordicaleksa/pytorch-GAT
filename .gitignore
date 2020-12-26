@@ -1,0 +1,10 @@
+# PyCharm IDE
+.idea
+__pycache__
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints
+
+# Models checkpoints and binaries
+models/checkpoints
+models/binaries

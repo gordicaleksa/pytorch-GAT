@@ -1,0 +1,3 @@
+# https://github.com/kimiyoung/planetoid <- for Cora information
+# nobody except for PyTorch Geometric did coalescing of the edge index...
+# considering the most optimzal solutions

@@ -26,7 +26,7 @@ def get_layer_type(layer_type):
 
 
 class GAT(torch.nn.Module):
-    def __init__(self, num_of_layers, num_heads_per_layer, num_features_per_layer, dropout, layer_type=LayerType.IMP3):
+    def __init__(self, num_of_layers, num_heads_per_layer, num_features_per_layer, dropout=0.6, layer_type=LayerType.IMP3):
         super().__init__()
 
         # Short names for readability (much shorter lines)
@@ -35,13 +35,13 @@ class GAT(torch.nn.Module):
 
         GATLayer = get_layer_type(layer_type)
 
-        self.GAT = nn.Sequential(
+        self.gat_net = nn.Sequential(
             *[GATLayer(nfpl[i - 1], nfpl[i], nhpl[i], dropout=dropout) for i in range(1, num_of_layers - 1)],
             GATLayer(nfpl[-2], nfpl[-1], nhpl[-1], dropout=dropout, concat=False, activation=nn.Softmax)
         )
 
     def forward(self, graph, edge_index):
-        return self.GAT(graph, edge_index)
+        return self.gat_net(graph, edge_index)
 
 
 class GATLayerImp3(torch.nn.Module):

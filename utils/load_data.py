@@ -1,7 +1,6 @@
 import enum
 import os
 import pickle
-import pickletools
 
 
 import scipy.sparse as sp
@@ -41,35 +40,17 @@ def load_data(dataset_name):
         node_labels_npy = pickle_read(os.path.join(CORA_PATH, 'node_labels.npy'))
         adjacency_list_dict = pickle_read(os.path.join(CORA_PATH, 'adjacency_list.dict'))
 
-        dense_matrix = np.zeros((len(adjacency_list_dict), len(adjacency_list_dict)))
-        for key, values in adjacency_list_dict.items():
-            for v in values:
-                dense_matrix[key][v] += 1
+        nx_graph = nx.from_dict_of_lists(adjacency_list_dict)
+        adj = nx.adjacency_matrix(nx_graph)
+        adj = adj.tocoo()
+        edge_index = np.row_stack((adj.row, adj.col))
+        # todo: int32/64?
+        # todo: verify results match with PyGeometric (different approaches)
+        # todo: add masks
 
-        # todo: figure out whether this line dropped some edges silently -> yes it did
-        adj = nx.adjacency_matrix(nx.from_dict_of_lists(adjacency_list_dict))
-        adj = adj.todense()
-
-        var1 = np.sum(dense_matrix)
-        var2 = np.sum(adj)
-        print(var1, var2, np.trace(dense_matrix), np.trace(adj))
-        print('mkay')
-        # no coalescing
+        return node_features_csr, node_labels_npy, edge_index
     else:
         raise Exception(f'{dataset_name} not yet supported.')
-
-
-# def edge_index_from_dict(graph_dict, num_nodes=None):
-#     row, col = [], []
-#     for key, value in graph_dict.items():
-#         row += repeat(key, len(value))
-#         col += value
-#     edge_index = torch.stack([torch.tensor(row), torch.tensor(col)], dim=0)
-#     # NOTE: There are duplicated edges and self loops in the datasets. Other
-#     # implementations do not remove them!
-#     edge_index, _ = remove_self_loops(edge_index)
-#     edge_index, _ = coalesce(edge_index, None, num_nodes, num_nodes)
-#     return edge_index
 
 
 def index_to_mask(index, size):

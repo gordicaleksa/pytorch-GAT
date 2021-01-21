@@ -1,6 +1,8 @@
 import enum
 import os
 import pickle
+from itertools import repeat
+import time
 
 
 import scipy.sparse as sp
@@ -36,14 +38,30 @@ def pickle_read(path):
 
 def load_data(dataset_name):
     if dataset_name.lower() == DatasetType.CORA.name.lower():
+
         node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
         node_labels_npy = pickle_read(os.path.join(CORA_PATH, 'node_labels.npy'))
         adjacency_list_dict = pickle_read(os.path.join(CORA_PATH, 'adjacency_list.dict'))
 
-        nx_graph = nx.from_dict_of_lists(adjacency_list_dict)
-        adj = nx.adjacency_matrix(nx_graph)
-        adj = adj.tocoo()
-        edge_index = np.row_stack((adj.row, adj.col))
+        # Build edge index explicitly (faster than nx ~100 times and as fast as PyGeometric imp, far less complicated)
+        row, col = [], []
+        seen = set()
+        for source_node, neighboring_nodes in adjacency_list_dict.items():
+            if source_node == 2707:
+                print(neighboring_nodes)
+            for value in neighboring_nodes:
+                if (source_node, value) not in seen:
+                    row.append(source_node)
+                    col.append(value)
+                seen.add((source_node, value))
+        edge_index = np.row_stack((row, col)).astype(np.int64)
+
+        pygeo = np.load(r"C:\tmp_data_dir\YouTube\CodingProjects\GNNs_playground\pytorch_geometric\examples\edge_index.npy")
+        pygeo_seen = set()
+        for i in range(pygeo.shape[1]):
+            pygeo_seen.add(tuple(pygeo[:, i]))
+        tmp2 = pygeo_seen.difference(seen)
+        tmp = np.sum(edge_index != pygeo)
         # todo: int32/64?
         # todo: verify results match with PyGeometric (different approaches)
         # todo: add masks
@@ -57,6 +75,13 @@ def index_to_mask(index, size):
     mask = torch.zeros((size, ), dtype=torch.bool)
     mask[index] = 1
     return mask
+
+
+def build_edge_index_nx(adjacency_list_dict):
+    nx_graph = nx.from_dict_of_lists(adjacency_list_dict)
+    adj = nx.adjacency_matrix(nx_graph)
+    adj = adj.tocoo()
+    return np.row_stack((adj.row, adj.col))
 
 
 if __name__ == "__main__":

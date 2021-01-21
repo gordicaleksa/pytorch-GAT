@@ -3,7 +3,7 @@ import os
 import pickle
 from itertools import repeat
 import time
-
+import igraph as ig
 
 import scipy.sparse as sp
 import numpy as np
@@ -54,6 +54,8 @@ def plot_in_out_degree_distributions(edge_index, num_of_nodes):
         out_degrees[source_node_id] += 1  # source node points towards some other node -> increment it's out degree
         in_degrees[target_node_id] += 1
 
+    # todo: add histogram as well
+
     plt.figure()
     plt.subplot(211)
     plt.plot(in_degrees, color='blue')
@@ -65,14 +67,55 @@ def plot_in_out_degree_distributions(edge_index, num_of_nodes):
     plt.show()
 
 
-def visualize_graph(edge_index, node_labels):
+def visualize_graph(edge_index, node_labels, visualization_tool='igraph'):
     assert isinstance(edge_index, np.ndarray), f'Expected NumPy array got {type(edge_index)}.'
 
     edge_index_tuples = list(zip(edge_index[0, :], edge_index[1, :]))
-    G = nx.Graph()
-    G.add_edges_from(edge_index_tuples)
-    nx.draw_networkx(G)
-    plt.show()
+    if visualization_tool == 'nx':
+        G = nx.Graph()
+        G.add_edges_from(edge_index_tuples)
+        nx.draw_networkx(G)
+        plt.show()
+    elif visualization_tool == 'igraph':
+        # g = ig.Graph.Famous("petersen")
+        # ig.plot(g)
+
+        g = ig.Graph()
+        g.add_vertices(len(node_labels))
+        # g.vs["label"] = node_labels
+        g.add_edges(edge_index_tuples)
+
+        out_fig_name = "graph.eps"
+        visual_style = {}
+        # Define colors used for outdegree visualization
+        # colours = ['#fecc5c', '#a31a1c']
+        # Set bbox and margin
+        visual_style["bbox"] = (3000, 3000)
+        visual_style["margin"] = 17
+        # Set vertex colours
+        # todo: add unique color for every label
+        color_dict = {0: "red", 1: "blue", 2: "green", 3: "red", 4: "blue", 5: "green", 6: "red"}
+
+        visual_style["vertex_color"] = [color_dict[label] for label in node_labels]
+        visual_style["edge_width"] = 0.1
+        # Set vertex size
+        visual_style["vertex_size"] = 20
+        # Set vertex lable size
+        # visual_style["vertex_label_size"] = 8
+        # Don't curve the edges
+        # visual_style["edge_curved"] = True
+        # Set the layout
+        # todo: try different layouts
+        my_layout = g.layout_kamada_kawai()
+        visual_style["layout"] = my_layout
+        # Plot the graph
+        ig.plot(g, **visual_style)  # , **visual_style
+
+        # import matplotlib.pyplot as plt
+        # fig, ax = plt.subplots()
+        # ig.plot(g, target=ax)
+    else:
+        raise Exception(f'Visualization tool {visualization_tool} not supported.')
 
 
 def load_data(dataset_name, should_visualize=True):

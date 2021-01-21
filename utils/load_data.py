@@ -54,7 +54,7 @@ def plot_in_out_degree_distributions(edge_index, num_of_nodes):
         out_degrees[source_node_id] += 1  # source node points towards some other node -> increment it's out degree
         in_degrees[target_node_id] += 1
 
-    # todo: add histogram as well
+    # todo: add histogram as well, avg degree, max degree
 
     plt.figure()
     plt.subplot(211)
@@ -67,7 +67,14 @@ def plot_in_out_degree_distributions(edge_index, num_of_nodes):
     plt.show()
 
 
-def visualize_graph(edge_index, node_labels, visualization_tool='igraph'):
+# todo: check out plotly
+def visualize_graph(edge_index, node_labels, visualization_tool='nx'):
+    """
+    This family of methods are based on physical system simulation.
+    Vertices are represented as charged particles, that repulse each other, and edges are treated as elastic strings.
+    These methods try to model the dynamics of this system or find a minimum of energy.
+
+    """
     assert isinstance(edge_index, np.ndarray), f'Expected NumPy array got {type(edge_index)}.'
 
     edge_index_tuples = list(zip(edge_index[0, :], edge_index[1, :]))
@@ -77,39 +84,36 @@ def visualize_graph(edge_index, node_labels, visualization_tool='igraph'):
         nx.draw_networkx(G)
         plt.show()
     elif visualization_tool == 'igraph':
-        # g = ig.Graph.Famous("petersen")
-        # ig.plot(g)
+        # it's easy to do analysis here using igraph instead of what I did with plot_in_out_degree_distributions
+        # many tools from network analysis
 
         g = ig.Graph()
         g.add_vertices(len(node_labels))
         # g.vs["label"] = node_labels
         g.add_edges(edge_index_tuples)
-
         out_fig_name = "graph.eps"
         visual_style = {}
         # Define colors used for outdegree visualization
-        # colours = ['#fecc5c', '#a31a1c']
         # Set bbox and margin
         visual_style["bbox"] = (3000, 3000)
         visual_style["margin"] = 17
         # Set vertex colours
-        # todo: add unique color for every label
-        color_dict = {0: "red", 1: "blue", 2: "green", 3: "red", 4: "blue", 5: "green", 6: "red"}
+        color_dict = {0: "red", 1: "blue", 2: "green", 3: "orange", 4: "yellow", 5: "pink", 6: "gray"}
 
         visual_style["vertex_color"] = [color_dict[label] for label in node_labels]
         visual_style["edge_width"] = 0.1
         # Set vertex size
-        visual_style["vertex_size"] = 20
-        # Set vertex lable size
-        # visual_style["vertex_label_size"] = 8
-        # Don't curve the edges
-        # visual_style["edge_curved"] = True
-        # Set the layout
-        # todo: try different layouts
-        my_layout = g.layout_kamada_kawai()
-        visual_style["layout"] = my_layout
-        # Plot the graph
-        ig.plot(g, **visual_style)  # , **visual_style
+        # simple heuristic size ~ degree / 2 (it gave nice results I tried log and sqrt to small)
+        tmp = [deg/2 for deg in g.degree()]
+        # tmp[tmp.index(max(tmp))] = 20
+        visual_style["vertex_size"] = tmp
+
+        # Set the layout (layout_drl also gave nice results for Cora)
+        my_layouts = [g.layout_kamada_kawai()]  # force-directed method
+        for my_layout in my_layouts:
+            visual_style["layout"] = my_layout
+            # Plot the graph
+            ig.plot(g, **visual_style)  # , **visual_style
 
         # import matplotlib.pyplot as plt
         # fig, ax = plt.subplots()

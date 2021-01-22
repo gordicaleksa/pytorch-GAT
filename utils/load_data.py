@@ -37,7 +37,6 @@
 """
 
 import pickle
-import time
 
 
 import numpy as np
@@ -50,11 +49,52 @@ from utils.constants import *
 from utils.visualizations import plot_in_out_degree_distributions, visualize_graph
 
 
-# todo: compare across 5 different repos how people handled Cora
+# todo: after I get GAT working e2e compare across 5 different repos how people handled Cora
 # todo: add t-SNE visualization of trained GAT model
 # todo: be explicit about shapes throughout the code
 
 
+def load_graph_data(dataset_name, device, should_visualize=True):
+    dataset_name = dataset_name.lower()
+    if dataset_name == DatasetType.CORA.name.lower():
+
+        # shape = (N, F), where N is the number of nodes and F is the number of features
+        node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
+        # shape = (N, 1)
+        node_labels_npy = pickle_read(os.path.join(CORA_PATH, 'node_labels.npy'))
+        # shape = (N, number of neighboring nodes) <- this is a dictionary not a matrix!
+        adjacency_list_dict = pickle_read(os.path.join(CORA_PATH, 'adjacency_list.dict'))
+
+        # Normalize the features
+        node_features_csr = normalize_features_sparse(node_features_csr)
+
+        # Build edge index explicitly (faster than nx ~100 times and as fast as PyGeometric imp, far less complicated)
+        # shape = (2, E), where E is the number of edges, and 2 for source and target nodes, basically edge index
+        # contains tuples of the format S->T, e.g. 0->3 means that node with id 0 points to a node with id 3.
+        edge_index = build_edge_index(adjacency_list_dict)
+
+        if should_visualize:  # network analysis and graph drawing
+            plot_in_out_degree_distributions(edge_index, dataset_name)
+            visualize_graph(edge_index, node_labels_npy, dataset_name)
+
+        # Convert to dense PyTorch tensors
+        edge_index = torch.tensor(edge_index, dtype=torch.long, device=device)
+        node_labels = torch.tensor(node_labels_npy, dtype=torch.long, device=device)  # todo: do I need long? save mem!
+        node_features = torch.tensor(node_features_csr.todense(), device=device)
+
+        # Build up masks that tell us which nodes belong to the train/val and test data
+        num_of_nodes = len(node_labels_npy)
+        # shape = (N) i.e. for every node in the graph we have 1 (belongs to the training/val/test split) or 0
+        train_mask = build_mask(torch.arange(CORA_TRAIN_RANGE[0], CORA_TRAIN_RANGE[1]), num_of_nodes)
+        val_mask = build_mask(torch.arange(CORA_VAL_RANGE[0], CORA_TRAIN_RANGE[1]), num_of_nodes)
+        test_mask = build_mask(torch.arange(CORA_TEST_RANGE[0], CORA_TRAIN_RANGE[1]), num_of_nodes)
+
+        return node_features, node_labels, edge_index, train_mask, val_mask, test_mask
+    else:
+        raise Exception(f'{dataset_name} not yet supported.')
+
+
+# All Cora data is stored as pickle
 def pickle_read(path):
     with open(path, 'rb') as file:
         out = pickle.load(file)
@@ -62,13 +102,10 @@ def pickle_read(path):
     return out
 
 
-def normalize_features_dense(node_features_dense):
-    assert isinstance(node_features_dense, np.matrix), f'Expected np matrix got {type(node_features_dense)}.'
-
-    # The goal is to make feature vectors normalized (sum equals 1), but since some feature vectors are all 0s
-    # in those cases we'd have division by 0 so I set the min value (via np.clip) to 1.
-    # Note: 1 is a neutral element for division i.e. it won't modify the feature vector
-    return node_features_dense / np.clip(node_features_dense.sum(1), a_min=1, a_max=None)
+def build_mask(indices, mask_size):
+    mask = torch.zeros((mask_size,), dtype=torch.bool)
+    mask[indices] = 1
+    return mask
 
 
 def normalize_features_sparse(node_features_sparse):
@@ -87,80 +124,36 @@ def normalize_features_sparse(node_features_sparse):
     return diagonal_inv_features_sum_matrix.dot(node_features_sparse)
 
 
-def profile(node_features_csr):
-    """
-        Show the benefit of using CORRECT sparse formats during processing, result:
-            CSR >> LIL >> dense format, CSR is ~2x faster from LIL and ~8x faster from dense format
+# Not used -> check out playground.py where it is used in profiling functions
+def normalize_features_dense(node_features_dense):
+    assert isinstance(node_features_dense, np.matrix), f'Expected np matrix got {type(node_features_dense)}.'
 
-        Official GAT and GCN implementations used LIL. In this particular case it doesn't matter that much,
-        since it only takes a couple of ms to process Cora, but it's good to be aware of advantages that
-        different sparse formats bring to the table.
-
-    """
-    num_loops = 1000
-
-    node_features_dense = node_features_csr.todense()
-    node_features_lil = node_features_csr.tolil()
-
-    ts = time.time()
-    for i in range(num_loops):  # LIL
-        _ = normalize_features_sparse(node_features_lil)
-    print(f'time elapsed, LIL = {(time.time() - ts) / num_loops}')
-
-    ts = time.time()
-    for i in range(num_loops):  # CSR
-        _ = normalize_features_sparse(node_features_csr)
-    print(f'time elapsed, CSR = {(time.time() - ts) / num_loops}')
-
-    ts = time.time()
-    for i in range(num_loops):  # dense
-        _ = normalize_features_dense(node_features_dense)
-    print(f'time elapsed, dense = {(time.time() - ts) / num_loops}')
+    # The goal is to make feature vectors normalized (sum equals 1), but since some feature vectors are all 0s
+    # in those cases we'd have division by 0 so I set the min value (via np.clip) to 1.
+    # Note: 1 is a neutral element for division i.e. it won't modify the feature vector
+    return node_features_dense / np.clip(node_features_dense.sum(1), a_min=1, a_max=None)
 
 
-def load_data(dataset_name, device, should_visualize=True):
-    dataset_name = dataset_name.lower()
-    if dataset_name == DatasetType.CORA.name.lower():
+def build_edge_index(adjacency_list_dict):
+    source_nodes_ids, target_nodes_ids = [], []
+    seen_edges = set()
 
-        # shape = (N, F), where N is the number of nodes and F is the number of features
-        node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
-        # shape = (N, 1)
-        node_labels_npy = pickle_read(os.path.join(CORA_PATH, 'node_labels.npy'))
-        # shape = (N, number of neighboring nodes) <- this is a dictionary not a matrix!
-        adjacency_list_dict = pickle_read(os.path.join(CORA_PATH, 'adjacency_list.dict'))
+    for src_node, neighboring_nodes in adjacency_list_dict.items():
+        for trg_node in neighboring_nodes:
+            # if this edge hasn't been seen so far we add it to the edge index (coalescing - removing duplicates)
+            if (src_node, trg_node) not in seen_edges:
+                source_nodes_ids.append(src_node)
+                target_nodes_ids.append(trg_node)
+                seen_edges.add((src_node, trg_node))
 
-        # Normalize the features
-        # profile(node_features_csr) <- if you want to play with profiling uncomment this line
-        node_features_csr = normalize_features_sparse(node_features_csr)
+    # shape = (2, E), where E is the number of edges in the graph
+    edge_index = np.row_stack((source_nodes_ids, target_nodes_ids))
 
-        # Build edge index explicitly (faster than nx ~100 times and as fast as PyGeometric imp, far less complicated)
-        edge_index = build_edge_index(adjacency_list_dict)
-
-        if should_visualize:  # network analysis and graph drawing
-            plot_in_out_degree_distributions(edge_index, dataset_name)
-            visualize_graph(edge_index, node_labels_npy, dataset_name)
-
-        # Convert to dense PyTorch tensors
-        edge_index = torch.tensor(edge_index, dtype=torch.long, device=device)
-        node_features = torch.tensor(node_features_csr.todense(), device=device)
-        node_labels = torch.tensor(node_labels_npy, device=device)
-        # todo: int32/64?
-        # todo: add masks
-
-        # todo: convert to PT tensors
-        return node_features, node_labels, edge_index
-    else:
-        raise Exception(f'{dataset_name} not yet supported.')
-
-
-def index_to_mask(index, size):
-    mask = torch.zeros((size, ), dtype=torch.bool)
-    mask[index] = 1
-    return mask
+    return edge_index
 
 
 # Not used - this is yet another way to construct the edge index by leveraging the existing package (networkx)
-# (it's just slower than my simple implementation)
+# (it's just slower than my simple implementation build_edge_index())
 def build_edge_index_nx(adjacency_list_dict):
     nx_graph = nx.from_dict_of_lists(adjacency_list_dict)
     adj = nx.adjacency_matrix(nx_graph)
@@ -169,20 +162,7 @@ def build_edge_index_nx(adjacency_list_dict):
     return np.row_stack((adj.row, adj.col))
 
 
-def build_edge_index(adjacency_list_dict):
-    row, col = [], []
-    seen = set()
-    for source_node, neighboring_nodes in adjacency_list_dict.items():
-        for value in neighboring_nodes:
-            if (source_node, value) not in seen:
-                row.append(source_node)
-                col.append(value)
-            seen.add((source_node, value))
-    edge_index = np.row_stack((row, col))
-
-    return edge_index
-
-
 # For data loading testing purposes feel free to ignore
 if __name__ == "__main__":
-    load_data(DatasetType.CORA.name, should_visualize=True)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU
+    load_graph_data(DatasetType.CORA.name, device, should_visualize=True)

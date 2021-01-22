@@ -119,7 +119,7 @@ def visualize_graph(edge_index, node_labels, dataset_name, visualization_tool=Gr
         # (layout_drl also gave nice results for Cora)
         visual_style["layout"] = ig_graph.layout_kamada_kawai()
 
-        print('Plotting results ... (it make take couple of seconds).')
+        print('Plotting results ... (it may take couple of seconds).')
         ig.plot(ig_graph, **visual_style)
 
         print(f'There are much better tools to visualize core like this one {network_repository_cora_url}.')

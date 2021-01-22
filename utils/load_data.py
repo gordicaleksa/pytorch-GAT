@@ -2,10 +2,12 @@
     Currently I only have support for Cora dataset - feel free to add your own graph data.
     You can find the details on how Cora was constructed here: http://eliassi.org/papers/ai-mag-tr08.pdf
 
-    TL;DR: The feature vectors are 1433 features long. The authors found the most frequent words across every paper
+    TL;DR:
+    The feature vectors are 1433 features long. The authors found the most frequent words across every paper
     in the graph (they've removed the low frequency words + some additional processing) and made a vocab from those.
     Now feature "i" in the feature vector tells us whether the paper contains i-th word from the vocab (1-yes, 0-no).
     e.g. : feature vector 100...00 means that this node/paper has only 0th word of the vocab.
+
 
     Note on Cora processing:
         GAT and many other papers (GCN, etc.) used the processed version of Cora that can be found here:
@@ -17,13 +19,30 @@
         Node features are saved in CSR sparse format, labels go from 0-6 (not one-hot) and finally the topology of the
         graph remained the same I just renamed it to adjacency_list.dict.
 
+
+    Note on sparse matrices:
+        If you're like me you didn't have to deal with sparse matrices until you started playing with GNNs.
+        You'll usually see the following formats in GNN implementations: LIL, COO, CSR and CSC.
+        Occasionally, you'll also see DOK and in special settings DIA and BSR as well (so 7 in total).
+
+        It's not nuclear physics (it's harder :P) check out these 2 links and you're good to go:
+            * https://docs.scipy.org/doc/scipy/reference/sparse.html
+            * https://en.wikipedia.org/wiki/Sparse_matrix
+
+        TL;DR:
+        LIL, COO and DOK are used for efficient modification of your sparse structure (add/remove edges)
+        CSC and CSR are used for efficient arithmetic operations (addition, multiplication, etc.)
+        DIA and BSR are used when you're dealing with special types of sparse matrices - diagonal and block matrices.
+
 """
 
 import pickle
+import time
 
 
 import numpy as np
 import networkx as nx
+import scipy.sparse as sp
 import torch
 
 
@@ -33,7 +52,7 @@ from utils.visualizations import plot_in_out_degree_distributions, visualize_gra
 
 # todo: compare across 5 different repos how people handled Cora
 # todo: add t-SNE visualization of trained GAT model
-# todo: understand csr, csc, coo, lil, dok sparse matrix formats (understand the other 2 from scipy)
+# todo: be explicit about shapes throughout the code
 
 
 def pickle_read(path):
@@ -43,37 +62,93 @@ def pickle_read(path):
     return out
 
 
-def load_data(dataset_name, should_visualize=True):
+def normalize_features_dense(node_features_dense):
+    assert isinstance(node_features_dense, np.matrix), f'Expected np matrix got {type(node_features_dense)}.'
+
+    # The goal is to make feature vectors normalized (sum equals 1), but since some feature vectors are all 0s
+    # in those cases we'd have division by 0 so I set the min value (via np.clip) to 1.
+    # Note: 1 is a neutral element for division i.e. it won't modify the feature vector
+    return node_features_dense / np.clip(node_features_dense.sum(1), a_min=1, a_max=None)
+
+
+def normalize_features_sparse(node_features_sparse):
+    assert sp.issparse(node_features_sparse), f'Expected a sparse matrix.'
+
+    # Instead of dividing (like in normalize_features_dense()) we do multiplication with inverse sum of features.
+    # Modern hardware (GPUs, TPUs, ASICs) is optimized for fast matrix multiplications! ^^ (* >> /)
+    node_features_sum = np.array(node_features_sparse.sum(1))  # sum features for every node feature vector
+    # Make an inverse (remember * by 1/x is better (faster) then / by x)
+    node_features_inv_sum = np.power(node_features_sum, -1).squeeze()
+    # Again certain sums will be 0 so 1/0 will give us inf so we replace those by 0 which is a neutral element for mul
+    node_features_inv_sum[np.isinf(node_features_inv_sum)] = 0.
+    # squeeze was there to make dimension go from (N, 1) -> N for sp.diags
+    diagonal_inv_features_sum_matrix = sp.diags(node_features_inv_sum)
+    # This thing is fast, we return the normalized features
+    return diagonal_inv_features_sum_matrix.dot(node_features_sparse)
+
+
+def profile(node_features_csr):
+    """
+        Show the benefit of using CORRECT sparse formats during processing, result:
+            CSR >> LIL >> dense format, CSR is ~2x faster from LIL and ~8x faster from dense format
+
+        Official GAT and GCN implementations used LIL. In this particular case it doesn't matter that much,
+        since it only takes a couple of ms to process Cora, but it's good to be aware of advantages that
+        different sparse formats bring to the table.
+
+    """
+    num_loops = 1000
+
+    node_features_dense = node_features_csr.todense()
+    node_features_lil = node_features_csr.tolil()
+
+    ts = time.time()
+    for i in range(num_loops):  # LIL
+        _ = normalize_features_sparse(node_features_lil)
+    print(f'time elapsed, LIL = {(time.time() - ts) / num_loops}')
+
+    ts = time.time()
+    for i in range(num_loops):  # CSR
+        _ = normalize_features_sparse(node_features_csr)
+    print(f'time elapsed, CSR = {(time.time() - ts) / num_loops}')
+
+    ts = time.time()
+    for i in range(num_loops):  # dense
+        _ = normalize_features_dense(node_features_dense)
+    print(f'time elapsed, dense = {(time.time() - ts) / num_loops}')
+
+
+def load_data(dataset_name, device, should_visualize=True):
     dataset_name = dataset_name.lower()
     if dataset_name == DatasetType.CORA.name.lower():
 
+        # shape = (N, F), where N is the number of nodes and F is the number of features
         node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
-        # todo: process features
+        # shape = (N, 1)
         node_labels_npy = pickle_read(os.path.join(CORA_PATH, 'node_labels.npy'))
+        # shape = (N, number of neighboring nodes) <- this is a dictionary not a matrix!
         adjacency_list_dict = pickle_read(os.path.join(CORA_PATH, 'adjacency_list.dict'))
-        num_of_nodes = len(adjacency_list_dict)
+
+        # Normalize the features
+        # profile(node_features_csr) <- if you want to play with profiling uncomment this line
+        node_features_csr = normalize_features_sparse(node_features_csr)
 
         # Build edge index explicitly (faster than nx ~100 times and as fast as PyGeometric imp, far less complicated)
-        row, col = [], []
-        seen = set()
-        for source_node, neighboring_nodes in adjacency_list_dict.items():
-            for value in neighboring_nodes:
-                if (source_node, value) not in seen:
-                    row.append(source_node)
-                    col.append(value)
-                seen.add((source_node, value))
-        # todo: be explicit about shapes throughout the code
-        edge_index = np.row_stack((row, col))
+        edge_index = build_edge_index(adjacency_list_dict)
 
-        if should_visualize:
+        if should_visualize:  # network analysis and graph drawing
             plot_in_out_degree_distributions(edge_index, dataset_name)
             visualize_graph(edge_index, node_labels_npy, dataset_name)
 
+        # Convert to dense PyTorch tensors
+        edge_index = torch.tensor(edge_index, dtype=torch.long, device=device)
+        node_features = torch.tensor(node_features_csr.todense(), device=device)
+        node_labels = torch.tensor(node_labels_npy, device=device)
         # todo: int32/64?
         # todo: add masks
 
         # todo: convert to PT tensors
-        return node_features_csr, node_labels_npy, edge_index
+        return node_features, node_labels, edge_index
     else:
         raise Exception(f'{dataset_name} not yet supported.')
 
@@ -84,7 +159,7 @@ def index_to_mask(index, size):
     return mask
 
 
-# Not used this is another way how you can construct the edge index by using existing package
+# Not used - this is yet another way to construct the edge index by leveraging the existing package (networkx)
 # (it's just slower than my simple implementation)
 def build_edge_index_nx(adjacency_list_dict):
     nx_graph = nx.from_dict_of_lists(adjacency_list_dict)
@@ -92,6 +167,20 @@ def build_edge_index_nx(adjacency_list_dict):
     adj = adj.tocoo()
 
     return np.row_stack((adj.row, adj.col))
+
+
+def build_edge_index(adjacency_list_dict):
+    row, col = [], []
+    seen = set()
+    for source_node, neighboring_nodes in adjacency_list_dict.items():
+        for value in neighboring_nodes:
+            if (source_node, value) not in seen:
+                row.append(source_node)
+                col.append(value)
+            seen.add((source_node, value))
+    edge_index = np.row_stack((row, col))
+
+    return edge_index
 
 
 # For data loading testing purposes feel free to ignore

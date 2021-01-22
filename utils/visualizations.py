@@ -14,7 +14,7 @@ def get_num_nodes_from_edge_index(edge_index):
 
 def plot_in_out_degree_distributions(edge_index, dataset_name):
     """
-        Note: It would be easy to do various kinds of powerful network analysis using igraph.
+        Note: It would be easy to do various kinds of powerful network analysis using igraph/networkx, etc.
         I chose to explicitly calculate only the node degree statistics here, but you can go much further if needed and
         calculate the graph diameter, number of triangles and many other concepts from the network analysis field.
 

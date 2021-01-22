@@ -54,7 +54,7 @@ from utils.visualizations import plot_in_out_degree_distributions, visualize_gra
 # todo: be explicit about shapes throughout the code
 
 
-def load_graph_data(dataset_name, device, should_visualize=True):
+def load_graph_data(dataset_name, device, should_visualize=False):
     dataset_name = dataset_name.lower()
     if dataset_name == DatasetType.CORA.name.lower():
 

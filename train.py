@@ -5,12 +5,14 @@ import torch
 
 
 from models.definitions.GAT import GAT
+from utils.data_loading import load_graph_data
+from utils.constants import DatasetType
 
 
 def train_gat(training_config, gat_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
-    # todo: add data loading
+    node_features, node_labels, edge_index, train_mask, val_mask, test_mask = load_graph_data(DatasetType.CORA.name, device, should_visualize=False)
 
     gat = GAT(gat_config['num_of_layers'], gat_config['num_heads_per_layer'], gat_config['num_features_per_layer'])
 

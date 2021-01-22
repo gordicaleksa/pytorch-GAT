@@ -47,6 +47,7 @@ class GAT(torch.nn.Module):
 class GATLayerImp3(torch.nn.Module):
     """
     Implementation #3 was inspired by PyTorch Geometric: https://github.com/rusty1s/pytorch_geometric
+    
     """
 
     source_nodes_dim = 0  # position of source nodes in edge index

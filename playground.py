@@ -1,7 +1,7 @@
 import time
 
 
-from utils.load_data import normalize_features_sparse, normalize_features_dense
+from utils.data_loading import normalize_features_sparse, normalize_features_dense
 
 
 def profile_different_matrix_formats(node_features_csr):

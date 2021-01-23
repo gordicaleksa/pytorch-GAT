@@ -19,7 +19,7 @@ class GAT(torch.nn.Module):
 
         self.gat_net = nn.Sequential(
             *[GATLayer(nfpl[i - 1] * nhpl[i-2], nfpl[i], nhpl[i-1], dropout_prob=dropout) for i in range(1, num_of_layers)] if num_of_layers >= 2 else nn.Identity(),
-            GATLayer(nfpl[-2] * nhpl[-2], nfpl[-1], nhpl[-1], dropout_prob=dropout, concat=False, activation=nn.Softmax)
+            GATLayer(nfpl[-2] * nhpl[-2], nfpl[-1], nhpl[-1], dropout_prob=dropout, concat=False, activation=None)
         )
 
     # data is just a (in_nodes_features, edge_index) tuple, I had to do it like this because of the nn.Sequential:
@@ -139,7 +139,8 @@ class GATLayerImp3(torch.nn.Module):
         if self.bias is not None:
             out_nodes_features += self.bias
 
-        return (self.activation(out_nodes_features), edge_index)
+        out_nodes_features = out_nodes_features if self.activation is None else self.activation(out_nodes_features)
+        return (out_nodes_features, edge_index)
 
     #
     # Helper functions

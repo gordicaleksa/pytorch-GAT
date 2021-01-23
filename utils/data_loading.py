@@ -83,13 +83,12 @@ def load_graph_data(dataset_name, device, should_visualize=False):
         node_labels = torch.tensor(node_labels_npy, dtype=torch.long, device=device)  # todo: do I need long? save mem!
         node_features = torch.tensor(node_features_csr.todense(), device=device)
 
-        # Build up masks that tell us which nodes belong to the train/val and test data
-        # shape = (N) i.e. for every node in the graph we have 1 (belongs to the training/val/test split) or 0
-        train_mask = build_mask(torch.arange(CORA_TRAIN_RANGE[0], CORA_TRAIN_RANGE[1]), num_of_nodes)
-        val_mask = build_mask(torch.arange(CORA_VAL_RANGE[0], CORA_VAL_RANGE[1]), num_of_nodes)
-        test_mask = build_mask(torch.arange(CORA_TEST_RANGE[0], CORA_TEST_RANGE[1]), num_of_nodes)
+        # Indices that help us extract nodes that belong to the train/val and test splits
+        train_indices = torch.arange(CORA_TRAIN_RANGE[0], CORA_TRAIN_RANGE[1], dtype=torch.long, device=device)
+        val_indices = torch.arange(CORA_VAL_RANGE[0], CORA_VAL_RANGE[1], dtype=torch.long, device=device)
+        test_indices = torch.arange(CORA_TEST_RANGE[0], CORA_TEST_RANGE[1], dtype=torch.long, device=device)
 
-        return node_features, node_labels, edge_index, train_mask, val_mask, test_mask
+        return node_features, node_labels, edge_index, train_indices, val_indices, test_indices
     else:
         raise Exception(f'{dataset_name} not yet supported.')
 
@@ -100,12 +99,6 @@ def pickle_read(path):
         out = pickle.load(file)
 
     return out
-
-
-def build_mask(indices, mask_size):
-    mask = torch.zeros((mask_size,), dtype=torch.bool)
-    mask[indices] = 1
-    return mask
 
 
 def normalize_features_sparse(node_features_sparse):

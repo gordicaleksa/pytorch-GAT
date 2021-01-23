@@ -18,12 +18,14 @@ class GAT(torch.nn.Module):
         GATLayer = get_layer_type(layer_type)
 
         self.gat_net = nn.Sequential(
-            *[GATLayer(nfpl[i - 1], nfpl[i], nhpl[i], dropout_prob=dropout) for i in range(1, num_of_layers - 1)],
+            *[GATLayer(nfpl[i - 1], nfpl[i], nhpl[i-1], dropout_prob=dropout) for i in range(1, num_of_layers)],
             GATLayer(nfpl[-2], nfpl[-1], nhpl[-1], dropout_prob=dropout, concat=False, activation=nn.Softmax)
         )
 
-    def forward(self, in_nodes_features, edge_index):
-        return self.gat_net(in_nodes_features, edge_index)
+    # data is just a (in_nodes_features, edge_index) tuple, I had to do it like this because of the nn.Sequential:
+    # https://discuss.pytorch.org/t/forward-takes-2-positional-arguments-but-3-were-given-for-nn-sqeuential-with-linear-layers/65698
+    def forward(self, data):
+        return self.gat_net(data)
 
 
 class GATLayerImp3(torch.nn.Module):
@@ -82,7 +84,8 @@ class GATLayerImp3(torch.nn.Module):
 
         self.init_params()
 
-    def forward(self, in_nodes_features, edge_index):
+    def forward(self, data):
+        in_nodes_features, edge_index = data
         num_of_nodes = in_nodes_features.shape[0]
 
         # shape = (N, FIN) where N - number of nodes in the graph, FIN number of input features per node
@@ -96,7 +99,7 @@ class GATLayerImp3(torch.nn.Module):
         nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
 
         # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
-        # shape = (N, NH, 1)
+        # shape = (N, NH)
         scores_source = (nodes_features_proj * self.scoring_fn_source).sum(dim=-1)
         scores_target = (nodes_features_proj * self.scoring_fn_target).sum(dim=-1)
 
@@ -138,8 +141,7 @@ class GATLayerImp3(torch.nn.Module):
         nodes_dim = 0
         src_nodes_index = edge_index[self.src_nodes_dim]
         trg_nodes_index = edge_index[self.trg_nodes_dim]
-        # todo: try normal indexing without index select
-        tmp = scores_source[src_nodes_index]
+        # Using index_select is faster than "normal" indexing (scores_source[src_nodes_index]) in PyTorch!
         scores_source = scores_source.index_select(nodes_dim, src_nodes_index)
         scores_target = scores_target.index_select(nodes_dim, trg_nodes_index)
         nodes_features_matrix_proj_lifted = nodes_features_matrix_proj.index_select(nodes_dim, src_nodes_index)

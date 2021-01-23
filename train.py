@@ -14,7 +14,9 @@ def train_gat(training_config, gat_config):
 
     node_features, node_labels, edge_index, train_mask, val_mask, test_mask = load_graph_data(DatasetType.CORA.name, device, should_visualize=False)
 
-    gat = GAT(gat_config['num_of_layers'], gat_config['num_heads_per_layer'], gat_config['num_features_per_layer'])
+    gat = GAT(gat_config['num_of_layers'], gat_config['num_heads_per_layer'], gat_config['num_features_per_layer']).to(device)
+
+    dummy = gat((node_features, edge_index))
 
     # todo: add training loop
 
@@ -48,7 +50,7 @@ if __name__ == '__main__':
     gat_config = {
         "num_of_layers": 2,
         "num_heads_per_layer": [8, 1],
-        "num_features_per_layer": [1433, 8, 7]
+        "num_features_per_layer": [1433, 10, 7]
     }
 
     # Train the original transformer model

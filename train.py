@@ -1,4 +1,5 @@
 import argparse
+import os
 
 
 import torch
@@ -10,13 +11,14 @@ import numpy as np
 
 from models.definitions.GAT import GAT
 from utils.data_loading import load_graph_data
-from utils.constants import DatasetType
+from utils.constants import DatasetType, CHECKPOINTS_PATH, BINARIES_PATH
+import utils.utils as utils
 
 
 def train_gat(training_config, gat_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
-    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(DatasetType.CORA.name, device, should_visualize=False)
+    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(training_config['dataset_name'], device, should_visualize=False)
 
     gat = GAT(gat_config['num_of_layers'], gat_config['num_heads_per_layer'], gat_config['num_features_per_layer']).to(device)
     loss_fn = nn.CrossEntropyLoss(reduction='mean')
@@ -57,6 +59,7 @@ def train_gat(training_config, gat_config):
 
             val_predictions = torch.argmax(val_nodes_distributions, dim=-1)
             val_acc = torch.sum(torch.eq(val_predictions, val_labels).long()).item() / len(val_labels)
+            print(val_acc)
 
             val_loss_log.append(val_loss)
             val_acc_log.append(val_acc)
@@ -69,6 +72,14 @@ def train_gat(training_config, gat_config):
             if patience_cnt >= training_config['patience']:  # don't have any more patience to wait ...
                 print('Patience has run out')
                 break
+
+        # Save model checkpoint
+        if training_config['checkpoint_freq'] is not None and (epoch + 1) % training_config['checkpoint_freq'] == 0:
+            ckpt_model_name = f"gat_ckpt_epoch_{epoch + 1}.pth"
+            torch.save(utils.get_training_state(training_config, gat), os.path.join(CHECKPOINTS_PATH, ckpt_model_name))
+
+    # Save the latest transformer in the binaries directory
+    torch.save(utils.get_training_state(training_config, gat), os.path.join(BINARIES_PATH, utils.get_available_binary_name()))
 
     plt.plot(training_loss_log)
     plt.plot(val_loss_log)
@@ -96,11 +107,12 @@ if __name__ == '__main__':
     parser.add_argument("--patience", type=int, help="number of epochs with no improvement before terminating", default=100)
     parser.add_argument("--lr", type=float, help="learning rate", default=5e-3)
     parser.add_argument("--weight_decay", type=float, help="L2 regularization on model weights", default=5e-4)
+    parser.add_argument("--dataset_name", choices=[el.name for el in DatasetType], help='which dataset to use for training', default=DatasetType.CORA.name)
 
     # Logging/debugging/checkpoint related (helps a lot with experimentation)
     parser.add_argument("--enable_tensorboard", type=bool, help="enable tensorboard logging", default=True)
     parser.add_argument("--console_log_freq", type=int, help="log to output console (batch) freq", default=10)
-    parser.add_argument("--checkpoint_freq", type=int, help="checkpoint model saving (epoch) freq", default=1)
+    parser.add_argument("--checkpoint_freq", type=int, help="checkpoint model saving (epoch) freq", default=100)
     args = parser.parse_args()
 
     # Wrapping training configuration into a dictionary

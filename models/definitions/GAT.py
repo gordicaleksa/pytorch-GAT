@@ -18,8 +18,8 @@ class GAT(torch.nn.Module):
         GATLayer = get_layer_type(layer_type)
 
         self.gat_net = nn.Sequential(
-            *[GATLayer(nfpl[i - 1], nfpl[i], nhpl[i-1], dropout_prob=dropout) for i in range(1, num_of_layers)],
-            GATLayer(nfpl[-2], nfpl[-1], nhpl[-1], dropout_prob=dropout, concat=False, activation=nn.Softmax)
+            *[GATLayer(nfpl[i - 1] * nhpl[i-2], nfpl[i], nhpl[i-1], dropout_prob=dropout) for i in range(1, num_of_layers)] if num_of_layers >= 2 else nn.Identity(),
+            GATLayer(nfpl[-2] * nhpl[-2], nfpl[-1], nhpl[-1], dropout_prob=dropout, concat=False, activation=nn.Softmax)
         )
 
     # data is just a (in_nodes_features, edge_index) tuple, I had to do it like this because of the nn.Sequential:
@@ -40,7 +40,7 @@ class GATLayerImp3(torch.nn.Module):
     scatter_dim = 0
     nodes_dim = 0
 
-    def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU,
+    def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
                  dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
 
         super().__init__()
@@ -121,9 +121,10 @@ class GATLayerImp3(torch.nn.Module):
         # Element-wise (aka Hadamard) product. Operator * does the same thing as torch.mul
         nodes_features_proj_lifted_weighted = nodes_features_proj_lifted * attentions_per_edge
 
-        # todo: self-edges needed?
         # This part adds up weighted, projected neighborhoods for every target node
-        out_nodes_features = torch.zeros(num_of_nodes, dtype=in_nodes_features.dtype, device=in_nodes_features.device)
+        size = list(nodes_features_proj_lifted_weighted.shape)  # convert to list otherwise assignment is not possible
+        size[self.scatter_dim] = num_of_nodes
+        out_nodes_features = torch.zeros(size, dtype=in_nodes_features.dtype, device=in_nodes_features.device)
         trg_index_broadcasted = self.broadcast(edge_index[self.trg_nodes_dim], nodes_features_proj_lifted_weighted)
         out_nodes_features.scatter_add_(self.scatter_dim, trg_index_broadcasted, nodes_features_proj_lifted_weighted)
 
@@ -138,7 +139,7 @@ class GATLayerImp3(torch.nn.Module):
         if self.bias is not None:
             out_nodes_features += self.bias
 
-        return self.activation(out_nodes_features)
+        return (self.activation(out_nodes_features), edge_index)
 
     #
     # Helper functions
@@ -225,7 +226,7 @@ class GATLayerImp3(torch.nn.Module):
 
 # Adapted from the official GAT implementation
 class GATLayerImp2(torch.nn.Module):
-    def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU,
+    def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
                  dropout=0.6, add_self_loops=True, bias=True, log_attention_weights=False):
         super().__init__()
         print('todo')
@@ -233,7 +234,7 @@ class GATLayerImp2(torch.nn.Module):
 
 # Other
 class GATLayerImp1(torch.nn.Module):
-    def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU,
+    def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
                  dropout=0.6, add_self_loops=True, bias=True, log_attention_weights=False):
         super().__init__()
         print('todo')

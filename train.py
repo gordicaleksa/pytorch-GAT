@@ -16,7 +16,9 @@ def train_gat(training_config, gat_config):
 
     gat = GAT(gat_config['num_of_layers'], gat_config['num_heads_per_layer'], gat_config['num_features_per_layer']).to(device)
 
-    dummy = gat((node_features, edge_index))
+    for epoch in training_config['num_of_epochs']:
+
+        predictions = gat((node_features, edge_index))
 
     # todo: add training loop
 

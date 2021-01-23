@@ -77,7 +77,9 @@ class GATLayerImp3(torch.nn.Module):
 
         self.leakyReLU = nn.LeakyReLU(0.2)  # using 0.2 as in the paper, no need to expose every setting
         self.activation = activation
-        self.dropout = nn.Dropout(p=dropout_prob)  # Used in 3 locations, feature matrix before/after proj and attention
+        # Probably not the nicest design but I use the same module in 3 locations, before/after features projection
+        # and for attention coefficients. Functionality-wise it's the same as using independent modules.
+        self.dropout = nn.Dropout(p=dropout_prob)
 
         self.log_attention_weights = log_attention_weights  # whether we should log the attention weights
         self.attention_weights = None  # for later visualization purposes, I cache the weights here
@@ -109,17 +111,19 @@ class GATLayerImp3(torch.nn.Module):
         scores_source_lifted, scores_target_lifted, nodes_features_proj_lifted = self.lift(scores_source, scores_target, nodes_features_proj, edge_index)
         scores_per_edge = self.leakyReLU(scores_source_lifted + scores_target_lifted)
 
+        # todo: implement scatter softmax
         attentions_per_edge = self.scatter_softmax(scores_per_edge, edge_index[self.trg_nodes_dim])
         # Add stochasticity to neighborhood aggregation
-        attentions_per_edge = self.dropout(attentions_per_edge)  # todo: check whether it's ok to use the same dropout
+        attentions_per_edge = self.dropout(attentions_per_edge)
 
         # Element-wise (aka Hadamard) product. Operator * does the same thing as torch.mul
         nodes_features_proj_lifted_weighted = nodes_features_proj_lifted * attentions_per_edge
 
+        # todo: self-edges needed?
         # This part adds up weighted, projected neighborhoods for every target node
         out_nodes_features = torch.zeros(num_of_nodes, dtype=in_nodes_features.dtype, device=in_nodes_features.device)
-        index = self.broadcast(edge_index[self.trg_nodes_dim], nodes_features_proj_lifted_weighted)
-        out_nodes_features.scatter_add_(0, index, nodes_features_proj_lifted_weighted)
+        trg_index_broadcasted = self.broadcast(edge_index[self.trg_nodes_dim], nodes_features_proj_lifted_weighted)
+        out_nodes_features.scatter_add_(0, trg_index_broadcasted, nodes_features_proj_lifted_weighted)
 
         if self.log_attention_weights:
             self.attention_weights = attentions_per_edge

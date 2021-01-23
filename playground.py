@@ -1,19 +1,27 @@
 import time
+import os
 
 
-from utils.data_loading import normalize_features_sparse, normalize_features_dense
+import scipy.sparse as sp
+
+
+from utils.data_loading import normalize_features_sparse, normalize_features_dense, pickle_read
+from utils.constants import CORA_PATH
 
 
 def profile_different_matrix_formats(node_features_csr):
     """
-        Show the benefit of using CORRECT sparse formats during processing, result:
+        Shows the benefit of using CORRECT sparse formats during processing, results:
             CSR >> LIL >> dense format, CSR is ~2x faster from LIL and ~8x faster from dense format
 
         Official GAT and GCN implementations used LIL. In this particular case it doesn't matter that much,
         since it only takes a couple of ms to process Cora, but it's good to be aware of advantages that
         different sparse formats bring to the table.
 
+        Note: CSR is the fastest format for the operations used in normalize features out of all scipy sparse formats.
+
     """
+    assert sp.isspmatrix_csr(node_features_csr), f'Expected scipy matrix in CSR format, got {type(node_features_csr)}.'
     num_loops = 1000
 
     node_features_dense = node_features_csr.todense()
@@ -35,10 +43,21 @@ def profile_different_matrix_formats(node_features_csr):
     print(f'time elapsed, dense = {(time.time() - ts) / num_loops}')
 
 
-def profiling():
+def profiling_different_gat_implementations():
     print('todo profile 3 different implementations: time and memory-wise.')
 
 
+def visualize_embedding_space():
+    # todo: t-SNE, UMAP for both trained and random GAT model
+    print('todo')
+
+
+def visualize_attention():
+    print('todo')
+
+
 if __name__ == '__main__':
-    profile_different_matrix_formats()
+    # shape = (N, F), where N is the number of nodes and F is the number of features
+    node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
+    profile_different_matrix_formats(node_features_csr)
 

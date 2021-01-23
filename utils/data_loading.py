@@ -50,8 +50,6 @@ from utils.visualizations import plot_in_out_degree_distributions, visualize_gra
 
 
 # todo: after I get GAT working e2e compare across 5 different repos how people handled Cora
-# todo: add t-SNE visualization of trained GAT model
-# todo: be explicit about shapes throughout the code
 
 
 def load_graph_data(dataset_name, device, should_visualize=False):
@@ -78,6 +76,8 @@ def load_graph_data(dataset_name, device, should_visualize=False):
             visualize_graph(edge_index, node_labels_npy, dataset_name)
 
         # Convert to dense PyTorch tensors
+
+        # Needs to be long int type because later functions like PyTorch's index_select expect it
         edge_index = torch.tensor(edge_index, dtype=torch.long, device=device)
         node_labels = torch.tensor(node_labels_npy, dtype=torch.long, device=device)  # todo: do I need long? save mem!
         node_features = torch.tensor(node_features_csr.todense(), device=device)
@@ -86,8 +86,8 @@ def load_graph_data(dataset_name, device, should_visualize=False):
         num_of_nodes = len(node_labels_npy)
         # shape = (N) i.e. for every node in the graph we have 1 (belongs to the training/val/test split) or 0
         train_mask = build_mask(torch.arange(CORA_TRAIN_RANGE[0], CORA_TRAIN_RANGE[1]), num_of_nodes)
-        val_mask = build_mask(torch.arange(CORA_VAL_RANGE[0], CORA_TRAIN_RANGE[1]), num_of_nodes)
-        test_mask = build_mask(torch.arange(CORA_TEST_RANGE[0], CORA_TRAIN_RANGE[1]), num_of_nodes)
+        val_mask = build_mask(torch.arange(CORA_VAL_RANGE[0], CORA_VAL_RANGE[1]), num_of_nodes)
+        test_mask = build_mask(torch.arange(CORA_TEST_RANGE[0], CORA_TEST_RANGE[1]), num_of_nodes)
 
         return node_features, node_labels, edge_index, train_mask, val_mask, test_mask
     else:
@@ -109,7 +109,7 @@ def build_mask(indices, mask_size):
 
 
 def normalize_features_sparse(node_features_sparse):
-    assert sp.issparse(node_features_sparse), f'Expected a sparse matrix.'
+    assert sp.issparse(node_features_sparse), f'Expected a sparse matrix, got {node_features_sparse}.'
 
     # Instead of dividing (like in normalize_features_dense()) we do multiplication with inverse sum of features.
     # Modern hardware (GPUs, TPUs, ASICs) is optimized for fast matrix multiplications! ^^ (* >> /)
@@ -118,7 +118,7 @@ def normalize_features_sparse(node_features_sparse):
     node_features_inv_sum = np.power(node_features_sum, -1).squeeze()
     # Again certain sums will be 0 so 1/0 will give us inf so we replace those by 0 which is a neutral element for mul
     node_features_inv_sum[np.isinf(node_features_inv_sum)] = 0.
-    # squeeze was there to make dimension go from (N, 1) -> N for sp.diags
+    # squeeze() was there to make dimension go from (N, 1) -> N for sp.diags
     diagonal_inv_features_sum_matrix = sp.diags(node_features_inv_sum)
     # This thing is fast, we return the normalized features
     return diagonal_inv_features_sum_matrix.dot(node_features_sparse)
@@ -141,7 +141,7 @@ def build_edge_index(adjacency_list_dict):
     for src_node, neighboring_nodes in adjacency_list_dict.items():
         for trg_node in neighboring_nodes:
             # if this edge hasn't been seen so far we add it to the edge index (coalescing - removing duplicates)
-            if (src_node, trg_node) not in seen_edges:
+            if (src_node, trg_node) not in seen_edges:  # it's easy to explicitly remove self-edges (Cora has none)
                 source_nodes_ids.append(src_node)
                 target_nodes_ids.append(trg_node)
                 seen_edges.add((src_node, trg_node))

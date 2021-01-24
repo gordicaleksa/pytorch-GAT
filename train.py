@@ -126,5 +126,7 @@ if __name__ == '__main__':
         "num_features_per_layer": [1433, 8, 7]  # todo: make a variable or dynamically figure out we need 7
     }
 
+    training_config.update(gat_config)
+
     # Train the original transformer model
     train_gat(training_config, gat_config)

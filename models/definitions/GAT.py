@@ -32,6 +32,8 @@ class GATLayerImp3(torch.nn.Module):
     """
     Implementation #3 was inspired by PyTorch Geometric: https://github.com/rusty1s/pytorch_geometric
 
+    But, it's faster (since I don't have the message passing framework overhead) and hopefully more readable!
+
     """
 
     # todo: think this through for inductive setup

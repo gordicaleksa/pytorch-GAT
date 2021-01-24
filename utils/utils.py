@@ -11,10 +11,17 @@ from utils.constants import BINARIES_PATH
 def get_training_state(training_config, model):
     training_state = {
         "commit_hash": git.Repo(search_parent_directories=True).head.object.hexsha,
-        "dataset_name": training_config['dataset_name'],
 
+        # Training details
+        "dataset_name": training_config['dataset_name'],
         "num_of_epochs": training_config['num_of_epochs'],
 
+        # Model structure
+        "num_of_layers": training_config['num_of_layers'],
+        "num_heads_per_layer": training_config['num_heads_per_layer'],
+        "num_features_per_layer": training_config['num_features_per_layer'],
+
+        # Model state
         "state_dict": model.state_dict()
     }
 

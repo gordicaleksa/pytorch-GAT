@@ -7,6 +7,7 @@ import scipy.sparse as sp
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 
+
 from utils.data_loading import normalize_features_sparse, normalize_features_dense, pickle_read, load_graph_data
 from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType
 from models.definitions.GAT import GAT
@@ -28,8 +29,9 @@ def profile_different_matrix_formats(node_features_csr):
     assert sp.isspmatrix_csr(node_features_csr), f'Expected scipy matrix in CSR format, got {type(node_features_csr)}.'
     num_loops = 1000
 
-    node_features_dense = node_features_csr.todense()
+    # You can also use: tocoo(), todok(), tocsc(), todia(), tobsr(), check out data_loading.py's header for more details
     node_features_lil = node_features_csr.tolil()
+    node_features_dense = node_features_csr.todense()
 
     ts = time.time()
     for i in range(num_loops):  # LIL
@@ -51,24 +53,28 @@ def profiling_different_gat_implementations():
     print('todo profile 3 different implementations: time and memory-wise.')
 
 
-def visualize_embedding_space():
+def visualize_embedding_space(model_name = r'gat_000000.pth', dataset_name = DatasetType.CORA.name):
+    """
+    Using t-SNE to visualize GAT embeddings in 2D space.
+    Check out this one for more intuition on how to tune t-SNE: https://distill.pub/2016/misread-tsne/
+
+    If you think it'd be useful for me to implement t-SNE as well and explain how every single detail works
+    open up an issue or DM me on social media!
+
+    Note: I also tried using UMAP but it doesn't provide any more insight than t-SNE.
+    (con: it has a lot of dependencies if you want to use their plotting functionality)
+
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
-    gat_config = {
-        "num_of_layers": 2,
-        "num_heads_per_layer": [8, 1],
-        "num_features_per_layer": [1433, 8, 7]  # todo: make a variable or dynamically figure out we need 7
-    }
-    model_name = r'gat_000000.pth'
-    dataset_name = DatasetType.CORA.name
 
     # Step 1: Prepare the data
     node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(dataset_name, device, should_visualize=False)
 
     # Step 2: Prepare the model
-    gat = GAT(gat_config['num_of_layers'], gat_config['num_heads_per_layer'], gat_config['num_features_per_layer']).to(device)
-
     model_path = os.path.join(BINARIES_PATH, model_name)
     model_state = torch.load(model_path)
+
+    gat = GAT(model_state['num_of_layers'], model_state['num_heads_per_layer'], model_state['num_features_per_layer']).to(device)
     print_model_metadata(model_state)
     gat.load_state_dict(model_state["state_dict"], strict=True)
     gat.eval()
@@ -77,15 +83,23 @@ def visualize_embedding_space():
     with torch.no_grad():
         all_nodes_distributions, _ = gat((node_features, edge_index))
 
-        # todo: t-SNE, UMAP for both trained and random GAT model
-        t_sne_embeddings = TSNE(n_components=2).fit_transform(all_nodes_distributions.cpu().numpy())
+        all_nodes = all_nodes_distributions.cpu().numpy()
         node_labels = node_labels.cpu().numpy()
-
-        plt.figure(figsize=(8, 8))
         num_classes = len(set(node_labels))
-        for i in range(num_classes):
-            plt.scatter(t_sne_embeddings[node_labels == i, 0], t_sne_embeddings[node_labels == i, 1], s=20, color=colors[i])
-        plt.axis('off')
+
+        perplexities = [5, 15, 30, 50, 80, 100]
+        t_sne_embeddings_list = [TSNE(n_components=2, perplexity=p, method='barnes_hut').fit_transform(all_nodes) for p in perplexities]
+
+        fig, axs = plt.subplots(3, 2)
+
+        # plt.figure(figsize=(8, 8))
+
+        for cnt, t_sne_embeddings in enumerate(t_sne_embeddings_list):
+            col = cnt % 2
+            row = int(cnt / 2)
+            for i in range(num_classes):
+                axs[row, col].scatter(t_sne_embeddings[node_labels == i, 0], t_sne_embeddings[node_labels == i, 1], s=20, color=colors[i])
+        # plt.axis('off')
         plt.show()
 
 

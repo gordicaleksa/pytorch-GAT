@@ -17,15 +17,19 @@ def convert_adj_to_edge_index(adjacency_matrix):
     h, w = adjacency_matrix.shape
     assert h == w, f'Expected square shape got = {adjacency_matrix.shape}.'
 
-    active_value = 0 if np.isnan(adjacency_matrix).any() else 1
+    # Handles both adjacency matrices as well as connectivity masks used in softmax (check out Imp2 of the GAT model)
+    # connectivity masks are equivalent to adjacency matrices they just have -np.inf instead of 0 and 0 instead of 1
+    # I'm assuming non-weighted (binary) adjacency matrices here obviously and this code isn't meant to be as generic
+    # as possible but a learning resource.
+    active_value = 0 if np.isinf(adjacency_matrix).any() else 1
 
     edge_index = []
     for src_node_id in range(h):
         for trg_nod_id in range(w):
-            if adjacency_matrix[src_node_id][trg_nod_id] == active_value:
+            if adjacency_matrix[src_node_id, trg_nod_id] == active_value:
                 edge_index.append([src_node_id, trg_nod_id])
 
-    return np.asarray(edge_index)
+    return np.asarray(edge_index).transpose()  # change shape from (N,2) into (2,N)
 
 
 def plot_in_out_degree_distributions(edge_index, dataset_name):

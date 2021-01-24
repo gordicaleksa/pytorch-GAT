@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 
 
 import torch
@@ -19,7 +20,7 @@ def train_gat(training_config, gat_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
     layer_type = LayerType.IMP2
 
-    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(training_config['dataset_name'], layer_type, device, should_visualize=True)
+    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(training_config['dataset_name'], layer_type, device, should_visualize=False)
 
     gat = GAT(gat_config['num_of_layers'], gat_config['num_heads_per_layer'], gat_config['num_features_per_layer'], layer_type=layer_type).to(device)
     loss_fn = nn.CrossEntropyLoss(reduction='mean')
@@ -34,6 +35,8 @@ def train_gat(training_config, gat_config):
     val_labels = node_labels.index_select(0, val_indices)
     best_val = -np.inf
     patience_cnt = 0
+
+    ts = time.time()
     for epoch in range(training_config['num_of_epochs']):
         if epoch % 100 == 0:
             print(f'{epoch}')
@@ -60,7 +63,6 @@ def train_gat(training_config, gat_config):
 
             val_predictions = torch.argmax(val_nodes_distributions, dim=-1)
             val_acc = torch.sum(torch.eq(val_predictions, val_labels).long()).item() / len(val_labels)
-            print(val_acc)
 
             val_loss_log.append(val_loss)
             val_acc_log.append(val_acc)
@@ -78,6 +80,8 @@ def train_gat(training_config, gat_config):
         if training_config['checkpoint_freq'] is not None and (epoch + 1) % training_config['checkpoint_freq'] == 0:
             ckpt_model_name = f"gat_ckpt_epoch_{epoch + 1}.pth"
             torch.save(utils.get_training_state(training_config, gat), os.path.join(CHECKPOINTS_PATH, ckpt_model_name))
+
+    print(f'time elapsed = {(time.time() - ts)}')
 
     # Save the latest transformer in the binaries directory
     torch.save(utils.get_training_state(training_config, gat), os.path.join(BINARIES_PATH, utils.get_available_binary_name()))

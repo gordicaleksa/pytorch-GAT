@@ -11,16 +11,17 @@ import numpy as np
 
 from models.definitions.GAT import GAT
 from utils.data_loading import load_graph_data
-from utils.constants import DatasetType, CHECKPOINTS_PATH, BINARIES_PATH
+from utils.constants import DatasetType, CHECKPOINTS_PATH, BINARIES_PATH, LayerType
 import utils.utils as utils
 
 
 def train_gat(training_config, gat_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
+    layer_type = LayerType.IMP2
 
-    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(training_config['dataset_name'], device, should_visualize=False)
+    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(training_config['dataset_name'], layer_type, device, should_visualize=True)
 
-    gat = GAT(gat_config['num_of_layers'], gat_config['num_heads_per_layer'], gat_config['num_features_per_layer']).to(device)
+    gat = GAT(gat_config['num_of_layers'], gat_config['num_heads_per_layer'], gat_config['num_features_per_layer'], layer_type=layer_type).to(device)
     loss_fn = nn.CrossEntropyLoss(reduction='mean')
     optimizer = Adam(gat.parameters(), lr=training_config['lr'], weight_decay=training_config['weight_decay'])
 

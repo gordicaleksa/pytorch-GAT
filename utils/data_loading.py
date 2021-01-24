@@ -52,7 +52,7 @@ from utils.visualizations import plot_in_out_degree_distributions, visualize_gra
 # todo: after I get GAT working e2e compare across 5 different repos how people handled Cora
 
 
-def load_graph_data(dataset_name, device, should_visualize=False):
+def load_graph_data(dataset_name, layer_type, device, should_visualize=False):
     dataset_name = dataset_name.lower()
     if dataset_name == DatasetType.CORA.name.lower():
 
@@ -67,19 +67,27 @@ def load_graph_data(dataset_name, device, should_visualize=False):
         node_features_csr = normalize_features_sparse(node_features_csr)
         num_of_nodes = len(node_labels_npy)
 
-        # Build edge index explicitly (faster than nx ~100 times and as fast as PyGeometric imp, far less complicated)
-        # shape = (2, E), where E is the number of edges, and 2 for source and target nodes. Basically edge index
-        # contains tuples of the format S->T, e.g. 0->3 means that node with id 0 points to a node with id 3.
-        edge_index = build_edge_index(adjacency_list_dict, num_of_nodes, add_self_edges=True)
+        if layer_type == LayerType.IMP2:  # some implementations rely on adjacency matrix others on edge index
+            connectivity_data = nx.adjacency_matrix(nx.from_dict_of_lists(adjacency_list_dict)).todense().astype(np.float)
+            connectivity_data += np.identity(connectivity_data.shape[0])
+            connectivity_data[connectivity_data == 0] = -np.inf
+            connectivity_data[connectivity_data == 1] = 0
+        elif layer_type == LayerType.IMP3:
+            # Build edge index explicitly (faster than nx ~100 times and as fast as PyGeometric imp, less complicated)
+            # shape = (2, E), where E is the number of edges, and 2 for source and target nodes. Basically edge index
+            # contains tuples of the format S->T, e.g. 0->3 means that node with id 0 points to a node with id 3.
+            connectivity_data = build_edge_index(adjacency_list_dict, num_of_nodes, add_self_edges=True)
+        else:
+            raise Exception(f'Layer type {layer_type} not yet supported.')
 
         if should_visualize:  # network analysis and graph drawing
-            plot_in_out_degree_distributions(edge_index, dataset_name)
-            visualize_graph(edge_index, node_labels_npy, dataset_name)
+            plot_in_out_degree_distributions(connectivity_data, dataset_name)
+            visualize_graph(connectivity_data, node_labels_npy, dataset_name)
 
         # Convert to dense PyTorch tensors
 
         # Needs to be long int type because later functions like PyTorch's index_select expect it
-        edge_index = torch.tensor(edge_index, dtype=torch.long, device=device)
+        edge_index = torch.tensor(connectivity_data, dtype=torch.long, device=device)  # todo: long for adj?
         node_labels = torch.tensor(node_labels_npy, dtype=torch.long, device=device)  # todo: do I need long? save mem!
         node_features = torch.tensor(node_features_csr.todense(), device=device)
 

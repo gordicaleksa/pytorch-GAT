@@ -12,6 +12,22 @@ def get_num_nodes_from_edge_index(edge_index):
     return len(set(edge_index[0]).union(set(edge_index[1])))
 
 
+def convert_adj_to_edge_index(adjacency_matrix):
+    assert isinstance(adjacency_matrix, np.ndarray), f'Expected NumPy array got {type(adjacency_matrix)}.'
+    h, w = adjacency_matrix.shape
+    assert h == w, f'Expected square shape got = {adjacency_matrix.shape}.'
+
+    active_value = 0 if np.isnan(adjacency_matrix).any() else 1
+
+    edge_index = []
+    for src_node_id in range(h):
+        for trg_nod_id in range(w):
+            if adjacency_matrix[src_node_id][trg_nod_id] == active_value:
+                edge_index.append([src_node_id, trg_nod_id])
+
+    return np.asarray(edge_index)
+
+
 def plot_in_out_degree_distributions(edge_index, dataset_name):
     """
         Note: It would be easy to do various kinds of powerful network analysis using igraph/networkx, etc.
@@ -20,6 +36,8 @@ def plot_in_out_degree_distributions(edge_index, dataset_name):
 
     """
     assert isinstance(edge_index, np.ndarray), f'Expected NumPy array got {type(edge_index)}.'
+    if edge_index.shape[0] == edge_index.shape[1]:
+        edge_index = convert_adj_to_edge_index(edge_index)
 
     num_of_nodes = get_num_nodes_from_edge_index(edge_index)
     # Store each node's input and output degree (they're the same for undirected graphs such as Cora)
@@ -66,6 +84,8 @@ def visualize_graph(edge_index, node_labels, dataset_name, visualization_tool=Gr
 
     """
     assert isinstance(edge_index, np.ndarray), f'Expected NumPy array got {type(edge_index)}.'
+    if edge_index.shape[0] == edge_index.shape[1]:
+        edge_index = convert_adj_to_edge_index(edge_index)
 
     num_of_nodes = get_num_nodes_from_edge_index(edge_index)
     edge_index_tuples = list(zip(edge_index[0, :], edge_index[1, :]))

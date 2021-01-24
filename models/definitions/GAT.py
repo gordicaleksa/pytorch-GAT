@@ -28,19 +28,8 @@ class GAT(torch.nn.Module):
         return self.gat_net(data)
 
 
-class GATLayerImp3(torch.nn.Module):
-    """
-    Implementation #3 was inspired by PyTorch Geometric: https://github.com/rusty1s/pytorch_geometric
-
-    But, it's faster (since I don't have the message passing framework overhead) and hopefully more readable!
-
-    """
-
-    # todo: think this through for inductive setup
-    src_nodes_dim = 0  # position of source nodes in edge index
-    trg_nodes_dim = 1  # position of target nodes in edge index
-    scatter_dim = 0
-    nodes_dim = 0
+# todo: nobody should be able to instantiate this one
+class GATLayer(torch.nn.Module):
 
     def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
                  dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
@@ -81,6 +70,7 @@ class GATLayerImp3(torch.nn.Module):
         #
 
         self.leakyReLU = nn.LeakyReLU(0.2)  # using 0.2 as in the paper, no need to expose every setting
+        self.softmax = nn.Softmax(dim=-1)  # -1 stands for apply the log-softmax along the last dimension
         self.activation = activation
         # Probably not the nicest design but I use the same module in 3 locations, before/after features projection
         # and for attention coefficients. Functionality-wise it's the same as using independent modules.
@@ -90,6 +80,43 @@ class GATLayerImp3(torch.nn.Module):
         self.attention_weights = None  # for later visualization purposes, I cache the weights here
 
         self.init_params()
+
+    def init_params(self):
+        """
+        The reason we're using Glorot (aka Xavier uniform) initialization is because it's a default TF initialization:
+            https://stackoverflow.com/questions/37350131/what-is-the-default-variable-initializer-in-tensorflow
+
+        The original repo was developed in TensorFlow (TF) and they used the default initialization.
+        Feel free to experiment - there may be better initializations depending on your problem.
+
+        """
+
+        nn.init.xavier_uniform_(self.linear_proj.weight)
+        nn.init.xavier_uniform_(self.scoring_fn_target)
+        nn.init.xavier_uniform_(self.scoring_fn_source)
+        if self.bias is not None:
+            torch.nn.init.zeros_(self.bias)
+
+
+class GATLayerImp3(GATLayer):
+    """
+    Implementation #3 was inspired by PyTorch Geometric: https://github.com/rusty1s/pytorch_geometric
+
+    But, it's faster (since I don't have the message passing framework overhead) and hopefully more readable!
+
+    """
+
+    # todo: think this through for inductive setup
+    src_nodes_dim = 0  # position of source nodes in edge index
+    trg_nodes_dim = 1  # position of target nodes in edge index
+    scatter_dim = 0
+    nodes_dim = 0
+
+    def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
+                 dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
+
+        super().__init__(num_in_features, num_out_features, num_of_heads, concat, activation, dropout_prob,
+                      add_skip_connection, bias, log_attention_weights)
 
     def forward(self, data):
         in_nodes_features, edge_index = data  # unpack data
@@ -125,10 +152,13 @@ class GATLayerImp3(torch.nn.Module):
 
         # This part adds up weighted, projected neighborhoods for every target node
         size = list(nodes_features_proj_lifted_weighted.shape)  # convert to list otherwise assignment is not possible
-        size[self.scatter_dim] = num_of_nodes
+        size[self.scatter_dim] = num_of_nodes  # shape = (N, NH, FOUT)
         out_nodes_features = torch.zeros(size, dtype=in_nodes_features.dtype, device=in_nodes_features.device)
         trg_index_broadcasted = self.broadcast(edge_index[self.trg_nodes_dim], nodes_features_proj_lifted_weighted)
         out_nodes_features.scatter_add_(self.scatter_dim, trg_index_broadcasted, nodes_features_proj_lifted_weighted)
+
+        # todo: consider moving beginning and end of the forward function to the parent class
+        # todo: consider adding skip/residual connection
 
         if self.log_attention_weights:
             self.attention_weights = attentions_per_edge
@@ -210,29 +240,72 @@ class GATLayerImp3(torch.nn.Module):
         # all the locations where the source nodes pointed to i (as dictated by the target index)
         return neighborhood_sums.index_select(self.nodes_dim, trg_index)
 
-    def init_params(self):
-        """
-        The reason we're using Glorot (aka Xavier uniform) initialization is because it's a default TF initialization:
-            https://stackoverflow.com/questions/37350131/what-is-the-default-variable-initializer-in-tensorflow
 
-        The original repo was developed in TensorFlow (TF) and they used the default initialization.
-        Feel free to experiment - there may be better initializations depending on your problem.
+class GATLayerImp2(GATLayer):
+    """
+        Implementation #2 was inspired by the official GAT implementation: https://github.com/PetarV-/GAT
 
-        """
+        It's conceptually simpler but computationally much less efficient.
 
-        nn.init.xavier_uniform_(self.linear_proj.weight)
-        nn.init.xavier_uniform_(self.scoring_fn_target)
-        nn.init.xavier_uniform_(self.scoring_fn_source)
-        if self.bias is not None:
-            torch.nn.init.zeros_(self.bias)
+        Note: this is the naive implementation not the sparse one.
 
+    """
 
-# Adapted from the official GAT implementation
-class GATLayerImp2(torch.nn.Module):
     def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
-                 dropout=0.6, add_self_loops=True, bias=True, log_attention_weights=False):
-        super().__init__()
-        print('todo')
+                 dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
+
+        super().__init__(num_in_features, num_out_features, num_of_heads, concat, activation, dropout_prob,
+                         add_skip_connection, bias, log_attention_weights)
+
+    def forward(self, data):
+        in_nodes_features, connectivity_mask = data  # unpack data
+        num_of_nodes = in_nodes_features.shape[0]
+        assert connectivity_mask.shape == (num_of_nodes, num_of_nodes), \
+            f'Expected connectivity matrix with shape=({num_of_nodes},{num_of_nodes}), got shape={connectivity_mask.shape}.'
+
+        # shape = (N, FIN) where N - number of nodes in the graph, FIN number of input features per node
+        # We apply the dropout to all of the input node features (as mentioned in the paper)
+        in_nodes_features = self.dropout(in_nodes_features)
+
+        # shape = (N, NH, FOUT) where NH - number of heads, FOUT number of output features per head
+        # We project the input node features into NH independent output features (one for each attention head)
+        nodes_features_proj = self.linear_proj(in_nodes_features).view(-1, self.num_of_heads, self.num_out_features)
+
+        nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
+
+        # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
+        # shape = (N, NH, 1)
+        scores_source = torch.sum((nodes_features_proj * self.scoring_fn_source), dim=-1, keepdim=True)
+        scores_target = torch.sum((nodes_features_proj * self.scoring_fn_target), dim=-1, keepdim=True)
+
+        # src shape = (NH, N, 1) and trg shape = (NH, 1, N)
+        scores_source = scores_source.transpose(0, 1)
+        scores_target = scores_target.reshape(self.num_of_heads, 1, num_of_nodes)  # todo: profile?
+
+        # shape = (NH, N, N) = (NH, N, 1) + (NH, 1, N) + the magic of automatic broadcast <3
+        # all because in Imp3 we are much smarter and don't have to calculate all i.e. NxN scores! (only E!)
+        all_scores = self.leakyReLU(scores_source + scores_target)
+        all_attention_coefficients = self.softmax(all_scores + connectivity_mask)  # todo: connectivity mask not adj!
+
+        # shape = (NH, N, N) * (NH, N, FOUT) = (NH, N, FOUT)
+        out_nodes_features = torch.bmm(all_attention_coefficients, nodes_features_proj.transpose(0, 1))
+
+        # shape = (N, NH, FOUT) # todo: profile?
+        out_nodes_features = out_nodes_features.reshape(num_of_nodes, self.num_of_heads, self.num_out_features)
+
+        if self.log_attention_weights:
+            self.attention_weights = all_attention_coefficients
+
+        if self.concat:
+            out_nodes_features = out_nodes_features.view(-1, self.num_of_heads * self.num_out_features)
+        else:
+            out_nodes_features = out_nodes_features.mean(dim=1)
+
+        if self.bias is not None:
+            out_nodes_features += self.bias
+
+        out_nodes_features = out_nodes_features if self.activation is None else self.activation(out_nodes_features)
+        return (out_nodes_features, connectivity_mask)
 
 
 # Other

@@ -67,7 +67,7 @@ def load_graph_data(dataset_name, layer_type, device, should_visualize=False):
         node_features_csr = normalize_features_sparse(node_features_csr)
         num_of_nodes = len(node_labels_npy)
 
-        if layer_type == LayerType.IMP2:  # some implementations rely on adjacency matrix others on edge index
+        if layer_type == LayerType.IMP2 or layer_type == LayerType.IMP1:  # some implementations rely on adjacency matrix others on edge index
             connectivity_data = nx.adjacency_matrix(nx.from_dict_of_lists(adjacency_list_dict)).todense().astype(np.float)
             connectivity_data += np.identity(connectivity_data.shape[0])
             connectivity_data[connectivity_data == 0] = -np.inf

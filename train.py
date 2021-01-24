@@ -18,7 +18,7 @@ import utils.utils as utils
 
 def train_gat(training_config, gat_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
-    layer_type = LayerType.IMP2
+    layer_type = LayerType.IMP1
 
     node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(training_config['dataset_name'], layer_type, device, should_visualize=False)
 
@@ -28,7 +28,7 @@ def train_gat(training_config, gat_config):
 
     # todo: add tranining/val loss logging and accuracy like in other projects
     # todo: use cross entropy ignore_index instead?
-    # todo: see why I'm overfitting
+    # todo: see why I'm overfitting and why is IMP1 superior over IMP2/3???
     training_loss_log, training_acc_log = [], []
     val_loss_log, val_acc_log = [], []
     training_labels = node_labels.index_select(0, train_indices)
@@ -109,7 +109,7 @@ if __name__ == '__main__':
     #
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_of_epochs", type=int, help="number of training epochs", default=1000)
-    parser.add_argument("--patience", type=int, help="number of epochs with no improvement before terminating", default=100)
+    parser.add_argument("--patience", type=int, help="number of epochs with no improvement before terminating", default=1000)
     parser.add_argument("--lr", type=float, help="learning rate", default=5e-3)
     parser.add_argument("--weight_decay", type=float, help="L2 regularization on model weights", default=5e-4)
     parser.add_argument("--dataset_name", choices=[el.name for el in DatasetType], help='which dataset to use for training', default=DatasetType.CORA.name)

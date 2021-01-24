@@ -31,7 +31,7 @@ class GAT(torch.nn.Module):
 # todo: nobody should be able to instantiate this one
 class GATLayer(torch.nn.Module):
 
-    def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
+    def __init__(self, num_in_features, num_out_features, num_of_heads, layer_type, concat=True, activation=nn.ELU(),
                  dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
 
         super().__init__()
@@ -46,16 +46,23 @@ class GATLayer(torch.nn.Module):
         # (denoted as "a" in the paper) and bias (not mentioned in the paper but present in the official GAT repo)
         #
 
-        # You can treat this one matrix as num_of_heads independent W matrices
-        self.linear_proj = nn.Linear(num_in_features, num_of_heads * num_out_features, bias=False)
+        if layer_type == LayerType.IMP1:
+            self.linear_proj = nn.Parameter(torch.Tensor(num_of_heads, num_in_features, num_out_features))
+        else:
+            # You can treat this one matrix as num_of_heads independent W matrices
+            self.linear_proj = nn.Linear(num_in_features, num_of_heads * num_out_features, bias=False)
 
         # After we concatenate target node (node i) and source node (node j) we apply the additive scoring function
         # which gives us un-normalized score "e". Here we split the "a" vector - but the semantics remain the same.
 
-        # Basically instead of doing [x, y] (concatenation, x/y are node feature vectors) and dot product with "a"
-        # we instead do a dot product between x and "a_left" and y and "a_right" and we sum them up
-        self.scoring_fn_target = nn.Parameter(torch.Tensor(1, num_of_heads, num_out_features))
-        self.scoring_fn_source = nn.Parameter(torch.Tensor(1, num_of_heads, num_out_features))
+        if layer_type == LayerType.IMP1:
+            self.scoring_fn_target = nn.Parameter(torch.Tensor(num_of_heads, num_out_features, 1))
+            self.scoring_fn_source = nn.Parameter(torch.Tensor(num_of_heads, num_out_features, 1))
+        else:
+            # Basically instead of doing [x, y] (concatenation, x/y are node feature vectors) and dot product with "a"
+            # we instead do a dot product between x and "a_left" and y and "a_right" and we sum them up
+            self.scoring_fn_target = nn.Parameter(torch.Tensor(1, num_of_heads, num_out_features))
+            self.scoring_fn_source = nn.Parameter(torch.Tensor(1, num_of_heads, num_out_features))
 
         # Bias is not crucial to GAT method (I pinged the main author, Petar, on this one)
         if bias and concat:
@@ -79,9 +86,9 @@ class GATLayer(torch.nn.Module):
         self.log_attention_weights = log_attention_weights  # whether we should log the attention weights
         self.attention_weights = None  # for later visualization purposes, I cache the weights here
 
-        self.init_params()
+        self.init_params(layer_type)
 
-    def init_params(self):
+    def init_params(self, layer_type):
         """
         The reason we're using Glorot (aka Xavier uniform) initialization is because it's a default TF initialization:
             https://stackoverflow.com/questions/37350131/what-is-the-default-variable-initializer-in-tensorflow
@@ -91,7 +98,10 @@ class GATLayer(torch.nn.Module):
 
         """
 
-        nn.init.xavier_uniform_(self.linear_proj.weight)
+        if layer_type == LayerType.IMP1:
+            nn.init.xavier_uniform_(self.linear_proj)
+        else:
+            nn.init.xavier_uniform_(self.linear_proj.weight)
         nn.init.xavier_uniform_(self.scoring_fn_target)
         nn.init.xavier_uniform_(self.scoring_fn_source)
         if self.bias is not None:
@@ -115,7 +125,7 @@ class GATLayerImp3(GATLayer):
     def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
                  dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
 
-        super().__init__(num_in_features, num_out_features, num_of_heads, concat, activation, dropout_prob,
+        super().__init__(num_in_features, num_out_features, num_of_heads, LayerType.IMP3, concat, activation, dropout_prob,
                       add_skip_connection, bias, log_attention_weights)
 
     def forward(self, data):
@@ -128,6 +138,7 @@ class GATLayerImp3(GATLayer):
 
         # shape = (N, NH, FOUT) where NH - number of heads, FOUT number of output features per head
         # We project the input node features into NH independent output features (one for each attention head)
+        # todo: torch.mm?
         nodes_features_proj = self.linear_proj(in_nodes_features).view(-1, self.num_of_heads, self.num_out_features)
 
         nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
@@ -241,6 +252,7 @@ class GATLayerImp3(GATLayer):
         return neighborhood_sums.index_select(self.nodes_dim, trg_index)
 
 
+# todo: the idea for the imp 2 or 1 was to use torch sparse (maybe add 4th imp lol)
 class GATLayerImp2(GATLayer):
     """
         Implementation #2 was inspired by the official GAT implementation: https://github.com/PetarV-/GAT
@@ -254,7 +266,7 @@ class GATLayerImp2(GATLayer):
     def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
                  dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
 
-        super().__init__(num_in_features, num_out_features, num_of_heads, concat, activation, dropout_prob,
+        super().__init__(num_in_features, num_out_features, num_of_heads, LayerType.IMP2, concat, activation, dropout_prob,
                          add_skip_connection, bias, log_attention_weights)
 
     def forward(self, data):
@@ -285,9 +297,9 @@ class GATLayerImp2(GATLayer):
         # shape = (NH, N, N) = (NH, N, 1) + (NH, 1, N) + the magic of automatic broadcast <3
         # all because in Imp3 we are much smarter and don't have to calculate all i.e. NxN scores! (only E!)
         all_scores = self.leakyReLU(scores_source + scores_target)
-        all_attention_coefficients = self.softmax(all_scores + connectivity_mask)  # todo: connectivity mask not adj!
+        all_attention_coefficients = self.softmax(all_scores + connectivity_mask)
 
-        # shape = (NH, N, N) * (NH, N, FOUT) = (NH, N, FOUT)
+        # shape = (NH, N, N) * (NH, N, FOUT) = (NH, N, FOUT)  # todo: profile
         out_nodes_features = torch.bmm(all_attention_coefficients, nodes_features_proj.transpose(0, 1))
 
         # shape = (N, NH, FOUT) # todo: profile?
@@ -309,12 +321,60 @@ class GATLayerImp2(GATLayer):
 
 
 # Other
-class GATLayerImp1(torch.nn.Module):
+class GATLayerImp1(GATLayer):
     def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
-                 dropout=0.6, add_self_loops=True, bias=True, log_attention_weights=False):
-        super().__init__()
-        print('todo')
+                 dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
 
+        super().__init__(num_in_features, num_out_features, num_of_heads, LayerType.IMP1, concat, activation, dropout_prob,
+                         add_skip_connection, bias, log_attention_weights)
+
+    def forward(self, data):
+        in_nodes_features, connectivity_mask = data  # unpack data
+        num_of_nodes = in_nodes_features.shape[0]
+        assert connectivity_mask.shape == (num_of_nodes, num_of_nodes), \
+            f'Expected connectivity matrix with shape=({num_of_nodes},{num_of_nodes}), got shape={connectivity_mask.shape}.'
+
+        # shape = (N, FIN) where N - number of nodes in the graph, FIN number of input features per node
+        # We apply the dropout to all of the input node features (as mentioned in the paper)
+        in_nodes_features = self.dropout(in_nodes_features)
+
+        # shape = (NH, N, FOUT) where NH - number of heads, FOUT number of output features per head
+        # We project the input node features into NH independent output features (one for each attention head)
+        nodes_features_proj = torch.matmul(in_nodes_features.unsqueeze(0), self.linear_proj)
+
+        nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
+
+        # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
+        # shape = (NH, N, 1)
+        scores_source = torch.bmm(nodes_features_proj, self.scoring_fn_source)
+        scores_target = torch.bmm(nodes_features_proj, self.scoring_fn_target)
+
+        # shape = (NH, N, N) = (NH, N, 1) + (NH, 1, N) + the magic of automatic broadcast <3
+        # all because in Imp3 we are much smarter and don't have to calculate all i.e. NxN scores! (only E!)
+        all_scores = self.leakyReLU(scores_source + scores_target.transpose(1, 2))
+        all_attention_coefficients = self.softmax(all_scores + connectivity_mask)
+
+        # shape = (NH, N, N) * (NH, N, FOUT) = (NH, N, FOUT)
+        out_nodes_features = torch.bmm(all_attention_coefficients, nodes_features_proj)
+
+        # shape = (N, NH, FOUT) # todo: profile?
+        out_nodes_features = out_nodes_features.transpose(0, 1)  # reshape(num_of_nodes, self.num_of_heads, self.num_out_features)
+
+        if self.log_attention_weights:
+            self.attention_weights = all_attention_coefficients
+
+        if self.concat:
+            out_nodes_features = out_nodes_features.reshape(-1, self.num_of_heads * self.num_out_features)
+        else:
+            out_nodes_features = out_nodes_features.mean(dim=1)
+
+        if self.bias is not None:
+            out_nodes_features += self.bias
+
+        out_nodes_features = out_nodes_features if self.activation is None else self.activation(out_nodes_features)
+        return (out_nodes_features, connectivity_mask)
+
+# todo: implementation with torch.sparse.mm!!!
 
 #
 # Helper functions

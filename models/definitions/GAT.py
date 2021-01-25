@@ -1,3 +1,6 @@
+import time
+
+
 import torch
 import torch.nn as nn
 
@@ -46,7 +49,9 @@ class GATLayer(torch.nn.Module):
         # (denoted as "a" in the paper) and bias (not mentioned in the paper but present in the official GAT repo)
         #
 
-        if layer_type == LayerType.IMP1:
+        if layer_type == LayerType.IMP4:
+            self.linear_proj = nn.Parameter(torch.Tensor(num_in_features, num_of_heads * num_out_features))
+        elif layer_type == LayerType.IMP1:
             self.linear_proj = nn.Parameter(torch.Tensor(num_of_heads, num_in_features, num_out_features))
         else:
             # You can treat this one matrix as num_of_heads independent W matrices
@@ -98,7 +103,7 @@ class GATLayer(torch.nn.Module):
 
         """
 
-        if layer_type == LayerType.IMP1:
+        if layer_type == LayerType.IMP1 or layer_type == LayerType.IMP4:
             nn.init.xavier_uniform_(self.linear_proj)
         else:
             nn.init.xavier_uniform_(self.linear_proj.weight)
@@ -106,6 +111,73 @@ class GATLayer(torch.nn.Module):
         nn.init.xavier_uniform_(self.scoring_fn_source)
         if self.bias is not None:
             torch.nn.init.zeros_(self.bias)
+
+
+# todo: implementation with torch.sparse.mm!!!
+class GATLayerImp4(GATLayer):
+    """
+    Implementation #4 was inspired by PyGAT and official GAT's sparse implementation
+
+    """
+
+    # todo: think this through for inductive setup
+    src_nodes_dim = 0  # position of source nodes in edge index
+    trg_nodes_dim = 1  # position of target nodes in edge index
+    scatter_dim = 0
+    nodes_dim = 0
+
+    def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
+                 dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
+
+        super().__init__(num_in_features, num_out_features, num_of_heads, LayerType.IMP4, concat, activation, dropout_prob,
+                      add_skip_connection, bias, log_attention_weights)
+
+    def forward(self, data):
+        in_nodes_features, edge_index = data  # unpack data
+        num_of_nodes = in_nodes_features.shape[0]
+
+        # shape = (N, FIN) where N - number of nodes in the graph, FIN number of input features per node
+        # We apply the dropout to all of the input node features (as mentioned in the paper)
+        in_nodes_features = self.dropout(in_nodes_features)
+
+        # shape = (N, NH, FOUT) where NH - number of heads, FOUT number of output features per head
+        # We project the input node features into NH independent output features (one for each attention head)
+        nodes_features_proj = torch.mm(in_nodes_features, self.linear_proj).view(-1, self.num_of_heads, self.num_out_features)
+
+        nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
+
+        # todo: like pyGAT using torch.mm (my way takes: 0.000205 per iteration)
+        ts = time.time()
+        num_of_loops = 100000
+        for i in range(num_of_loops):
+            # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
+            # shape = (N, NH), dim=-1 squeezes the last dimension
+            scores_source = (nodes_features_proj * self.scoring_fn_source).sum(dim=-1)
+            scores_target = (nodes_features_proj * self.scoring_fn_target).sum(dim=-1)
+
+            # We simply repeat the scores for source/target nodes based on the edge index
+            # scores shape = (E, NH, 1), where E is the number of edges in the graph
+            # nodes_features_proj_lifted shape = (E, NH, FOUT)
+            scores_source_lifted, scores_target_lifted, nodes_features_proj_lifted = self.lift(scores_source, scores_target,
+                                                                                               nodes_features_proj,
+                                                                                               edge_index)
+            scores_per_edge = self.leakyReLU(scores_source_lifted + scores_target_lifted)
+        print(f'time elapsed = {(time.time()-ts)/num_of_loops}')
+
+        attentions_per_edge = self.neighborhood_aware_softmax(scores_per_edge, edge_index[self.trg_nodes_dim],
+                                                              num_of_nodes)
+        # Add stochasticity to neighborhood aggregation
+        attentions_per_edge = self.dropout(attentions_per_edge)
+
+    def lift(self, scores_source, scores_target, nodes_features_matrix_proj, edge_index):
+        src_nodes_index = edge_index[self.src_nodes_dim]
+        trg_nodes_index = edge_index[self.trg_nodes_dim]
+        # Using index_select is faster than "normal" indexing (scores_source[src_nodes_index]) in PyTorch!
+        scores_source = scores_source.index_select(self.nodes_dim, src_nodes_index)
+        scores_target = scores_target.index_select(self.nodes_dim, trg_nodes_index)
+        nodes_features_matrix_proj_lifted = nodes_features_matrix_proj.index_select(self.nodes_dim, src_nodes_index)
+
+        return scores_source, scores_target, nodes_features_matrix_proj_lifted
 
 
 class GATLayerImp3(GATLayer):
@@ -138,13 +210,14 @@ class GATLayerImp3(GATLayer):
 
         # shape = (N, NH, FOUT) where NH - number of heads, FOUT number of output features per head
         # We project the input node features into NH independent output features (one for each attention head)
-        # todo: torch.mm?
+        # todo: torch.mm (it would be faster since lin proj doesn't have bias...)?
         nodes_features_proj = self.linear_proj(in_nodes_features).view(-1, self.num_of_heads, self.num_out_features)
 
         nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
 
         # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
         # shape = (N, NH), dim=-1 squeezes the last dimension
+        # todo: torch.sum instead of sum
         scores_source = (nodes_features_proj * self.scoring_fn_source).sum(dim=-1)
         scores_target = (nodes_features_proj * self.scoring_fn_target).sum(dim=-1)
 
@@ -374,7 +447,6 @@ class GATLayerImp1(GATLayer):
         out_nodes_features = out_nodes_features if self.activation is None else self.activation(out_nodes_features)
         return (out_nodes_features, connectivity_mask)
 
-# todo: implementation with torch.sparse.mm!!!
 
 #
 # Helper functions
@@ -388,6 +460,8 @@ def get_layer_type(layer_type):
         return GATLayerImp2
     elif layer_type == LayerType.IMP3:
         return GATLayerImp3
+    elif layer_type == LayerType.IMP4:
+        return GATLayerImp4
     else:
         raise Exception(f'Layer type {layer_type} not yet supported.')
 

@@ -72,7 +72,7 @@ def load_graph_data(dataset_name, layer_type, device, should_visualize=False):
             connectivity_data += np.identity(connectivity_data.shape[0])
             connectivity_data[connectivity_data == 0] = -np.inf
             connectivity_data[connectivity_data == 1] = 0
-        elif layer_type == LayerType.IMP3:
+        elif layer_type == LayerType.IMP3 or layer_type == LayerType.IMP4:
             # Build edge index explicitly (faster than nx ~100 times and as fast as PyGeometric imp, less complicated)
             # shape = (2, E), where E is the number of edges, and 2 for source and target nodes. Basically edge index
             # contains tuples of the format S->T, e.g. 0->3 means that node with id 0 points to a node with id 3.

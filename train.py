@@ -18,7 +18,7 @@ import utils.utils as utils
 
 def train_gat(training_config, gat_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
-    layer_type = LayerType.IMP1
+    layer_type = LayerType.IMP4
 
     node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(training_config['dataset_name'], layer_type, device, should_visualize=False)
 

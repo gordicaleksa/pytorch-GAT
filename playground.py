@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 
 from utils.data_loading import normalize_features_sparse, normalize_features_dense, pickle_read, load_graph_data
-from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType
+from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType, LayerType
 from models.definitions.GAT import GAT
 from utils.utils import print_model_metadata
 
@@ -68,7 +68,7 @@ def visualize_embedding_space(model_name = r'gat_000000.pth', dataset_name = Dat
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
     # Step 1: Prepare the data
-    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(dataset_name, device, should_visualize=False)
+    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(dataset_name, layer_type=LayerType.IMP3, device=device, should_visualize=False)
 
     # Step 2: Prepare the model
     model_path = os.path.join(BINARIES_PATH, model_name)
@@ -87,18 +87,18 @@ def visualize_embedding_space(model_name = r'gat_000000.pth', dataset_name = Dat
         node_labels = node_labels.cpu().numpy()
         num_classes = len(set(node_labels))
 
-        perplexities = [5, 15, 30, 50, 80, 100]
+        perplexities = [30]
         t_sne_embeddings_list = [TSNE(n_components=2, perplexity=p, method='barnes_hut').fit_transform(all_nodes) for p in perplexities]
 
-        fig, axs = plt.subplots(3, 2)
+        # fig, axs = plt.subplots(3, 2)
 
         # plt.figure(figsize=(8, 8))
 
-        for cnt, t_sne_embeddings in enumerate(t_sne_embeddings_list):
-            col = cnt % 2
-            row = int(cnt / 2)
-            for i in range(num_classes):
-                axs[row, col].scatter(t_sne_embeddings[node_labels == i, 0], t_sne_embeddings[node_labels == i, 1], s=20, color=colors[i])
+        # for cnt, t_sne_embeddings in enumerate(t_sne_embeddings_list):
+        #     col = cnt % 2
+        #     row = int(cnt / 2)
+        for i in range(num_classes):
+            plt.scatter(t_sne_embeddings_list[0][node_labels == i, 0], t_sne_embeddings_list[0][node_labels == i, 1], s=20, color=colors[i])
         # plt.axis('off')
         plt.show()
 

@@ -18,9 +18,11 @@ import utils.utils as utils
 
 def train_gat(training_config, gat_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
-    layer_type = LayerType.IMP4
+    layer_type = LayerType.IMP3
 
     node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(training_config['dataset_name'], layer_type, device, should_visualize=False)
+    # todo: tmp hack
+    # node_features = node_features.transpose(0, 1).contiguous()
 
     gat = GAT(gat_config['num_of_layers'], gat_config['num_heads_per_layer'], gat_config['num_features_per_layer'], layer_type=layer_type).to(device)
     loss_fn = nn.CrossEntropyLoss(reduction='mean')
@@ -36,13 +38,16 @@ def train_gat(training_config, gat_config):
     best_val = -np.inf
     patience_cnt = 0
 
+    # todo: tmp hack
+    tmp_dim = 0
     ts = time.time()
     for epoch in range(training_config['num_of_epochs']):
         if epoch % 100 == 0:
             print(f'{epoch}')
         # Training loop
         gat.train()
-        training_nodes_distributions = gat((node_features, edge_index))[0].index_select(0, train_indices)
+        training_nodes_distributions = gat((node_features, edge_index))[0].index_select(tmp_dim, train_indices)
+        # training_nodes_distributions = training_nodes_distributions.transpose(0, 1)
         training_loss = loss_fn(training_nodes_distributions, training_labels)
         training_predictions = torch.argmax(training_nodes_distributions, dim=-1)
         training_acc = torch.sum(torch.eq(training_predictions, training_labels).long()).item() / len(training_labels)
@@ -57,8 +62,8 @@ def train_gat(training_config, gat_config):
         # Validation loop
         with torch.no_grad():
             gat.eval()
-            val_nodes_distributions = gat((node_features, edge_index))[0].index_select(0, val_indices)
-
+            val_nodes_distributions = gat((node_features, edge_index))[0].index_select(tmp_dim, val_indices)
+            # val_nodes_distributions = val_nodes_distributions.transpose(0, 1)
             val_loss = loss_fn(val_nodes_distributions, val_labels)
 
             val_predictions = torch.argmax(val_nodes_distributions, dim=-1)

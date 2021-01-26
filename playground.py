@@ -108,6 +108,7 @@ colors = [
 ]
 
 
+# todo: visualize attention
 def visualize_attention():
     print('todo')
 

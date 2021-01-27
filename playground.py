@@ -49,6 +49,7 @@ def profile_different_matrix_formats(node_features_csr):
     print(f'time elapsed, dense = {(time.time() - ts) / num_loops}')
 
 
+# todo: profile all the imps
 def profiling_different_gat_implementations():
     print('todo profile 3 different implementations: time and memory-wise.')
 
@@ -109,6 +110,7 @@ colors = [
 
 
 # todo: visualize attention
+# todo: add env and README files
 def visualize_attention():
     print('todo')
 

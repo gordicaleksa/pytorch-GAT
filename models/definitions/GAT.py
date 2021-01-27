@@ -77,6 +77,11 @@ class GATLayer(torch.nn.Module):
         else:
             self.register_parameter('bias', None)
 
+        if add_skip_connection:
+            self.skip_proj = nn.Linear(num_in_features, num_of_heads * num_out_features, bias=False)
+        else:
+            self.register_parameter('skip_proj', None)
+
         #
         # End of trainable weights
         #
@@ -149,14 +154,6 @@ class GATLayerImp3(GATLayer):
 
         nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
 
-        # # faster than Imp3
-        # # scores_per_edge = (NH, 1, 2*FOUT) * (NH, 2*FOUT, E) -> (NH, E)
-        # nodes_features_proj_lifted = nodes_features_proj.index_select(2, edge_index[0])
-        # edge_features = torch.cat((nodes_features_proj_lifted, nodes_features_proj.index_select(2, edge_index[1])),
-        #                           dim=1)
-        # scores_per_edge = self.leakyReLU(torch.bmm(self.scoring_fn, edge_features)).squeeze(dim=1)  # .transpose(0, 1)
-
-
         # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
         # shape = (N, NH), dim=-1 squeezes the last dimension
         # note: torch.sum() is as performant as .sum() in my experiments
@@ -188,6 +185,12 @@ class GATLayerImp3(GATLayer):
 
         if self.log_attention_weights:
             self.attention_weights = attentions_per_edge
+
+        if self.add_skip_connection:
+            if out_nodes_features.shape[-1] == in_nodes_features.shape[-1]:
+                out_nodes_features += in_nodes_features.unsqueeze(1)
+            else:
+                out_nodes_features += self.skip_proj(in_nodes_features).view(-1, self.num_of_heads, self.num_out_features)
 
         if self.concat:
             out_nodes_features = out_nodes_features.view(-1, self.num_of_heads * self.num_out_features)

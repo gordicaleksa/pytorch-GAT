@@ -20,6 +20,7 @@ def get_training_state(training_config, model):
         "num_of_layers": training_config['num_of_layers'],
         "num_heads_per_layer": training_config['num_heads_per_layer'],
         "num_features_per_layer": training_config['num_features_per_layer'],
+        "layer_type": training_config['layer_type'].name,
 
         # Model state
         "state_dict": model.state_dict()

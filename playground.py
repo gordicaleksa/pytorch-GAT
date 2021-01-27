@@ -50,6 +50,7 @@ def profile_different_matrix_formats(node_features_csr):
 
 
 # todo: profile all the imps
+# todo: add jupyter
 def profiling_different_gat_implementations():
     print('todo profile 3 different implementations: time and memory-wise.')
 

@@ -52,8 +52,12 @@ from utils.visualizations import plot_in_out_degree_distributions, visualize_gra
 # todo: after I get GAT working e2e compare across 5 different repos how people handled Cora
 
 
-def load_graph_data(dataset_name, layer_type, device, should_visualize=False):
-    dataset_name = dataset_name.lower()
+def load_graph_data(training_config):
+    dataset_name = training_config['dataset_name'].lower()
+    layer_type = training_config['layer_type']
+    device = training_config['device']
+    should_visualize = training_config['should_visualize']
+
     if dataset_name == DatasetType.CORA.name.lower():
 
         # shape = (N, F), where N is the number of nodes and F is the number of features

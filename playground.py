@@ -3,6 +3,7 @@ import os
 
 
 import torch
+import torch.nn as nn
 import scipy.sparse as sp
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
@@ -120,5 +121,5 @@ if __name__ == '__main__':
     # shape = (N, F), where N is the number of nodes and F is the number of features
     # node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
     # profile_different_matrix_formats(node_features_csr)
-    visualize_embedding_space()
-
+    # visualize_embedding_space()
+    profiling_different_gat_implementations()

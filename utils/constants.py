@@ -22,6 +22,13 @@ class LayerType(enum.Enum):
     IMP3 = 2
 
 
+# 3 different model training/eval phases used in train.py
+class LoopPhase(enum.Enum):
+    TRAIN = 0,
+    VAL = 1,
+    TEST = 2
+
+
 BINARIES_PATH = os.path.join(os.path.dirname(__file__), os.pardir, 'models', 'binaries')
 CHECKPOINTS_PATH = os.path.join(os.path.dirname(__file__), os.pardir, 'models', 'checkpoints')
 DATA_DIR_PATH = os.path.join(os.path.dirname(__file__), os.pardir, 'data')

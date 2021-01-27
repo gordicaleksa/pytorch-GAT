@@ -73,7 +73,7 @@ def plot_in_out_degree_distributions(edge_index, dataset_name):
 
     plt.subplot(313)
     plt.plot(hist, color='blue')
-    plt.xlabel('node degree'); plt.ylabel('# nodes for the given degree'); plt.title(f'Node degree distribution for {dataset_name} dataset')
+    plt.xlabel('node degree'); plt.ylabel('# nodes for the given out degree'); plt.title(f'Node out degree distribution for {dataset_name} dataset')
     plt.xticks(np.arange(0, len(hist), 5.0))
     plt.grid(True)
     plt.show()

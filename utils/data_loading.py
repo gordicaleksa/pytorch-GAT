@@ -52,10 +52,9 @@ from utils.visualizations import plot_in_out_degree_distributions, visualize_gra
 # todo: after I get GAT working e2e compare across 5 different repos how people handled Cora
 
 
-def load_graph_data(training_config):
+def load_graph_data(training_config, device):
     dataset_name = training_config['dataset_name'].lower()
     layer_type = training_config['layer_type']
-    device = training_config['device']
     should_visualize = training_config['should_visualize']
 
     if dataset_name == DatasetType.CORA.name.lower():
@@ -71,6 +70,7 @@ def load_graph_data(training_config):
         node_features_csr = normalize_features_sparse(node_features_csr)
         num_of_nodes = len(node_labels_npy)
 
+        # todo: refactor this once I have imps in place
         if layer_type == LayerType.IMP2 or layer_type == LayerType.IMP1:  # some implementations rely on adjacency matrix others on edge index
             connectivity_data = nx.adjacency_matrix(nx.from_dict_of_lists(adjacency_list_dict)).todense().astype(np.float)
             connectivity_data += np.identity(connectivity_data.shape[0])

@@ -36,8 +36,8 @@ class GraphVisualizationTool(enum.Enum):
 class LayerType(enum.Enum):
     IMP1 = 0,
     IMP2 = 1,
-    IMP3 = 2,
-    IMP4 = 3
+    IMP3 = 2
+
 
 
 

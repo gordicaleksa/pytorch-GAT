@@ -182,16 +182,17 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
         all_nodes_unnormalized_scores, _ = gat((node_features, edge_index))
         all_nodes_unnormalized_scores = all_nodes_unnormalized_scores.cpu().numpy()
 
-    # todo: visualize attention
     if visualize_attention:
         # todo: pick some interesting ones with nice degree
         if config['layer_type'] == LayerType.IMP3:
             head_to_visualize = 0  # todo: do it like for the transformer multiple heads
-            node_of_interest = 1358  # 1701  306 1358
+            node_of_interest = 1358  # highest degree Cora nodes are: 1358 306 1701
             target_nodes = edge_index[1]
             source_nodes = edge_index[0]
+
             indices = torch.eq(target_nodes, node_of_interest)
             neighbors = list(source_nodes[indices].cpu().numpy())
+            labels = list(node_labels[neighbors].cpu().numpy())
             attention_layer_2 = gat.gat_net[1].attention_weights.squeeze(dim=-1)
             attention_weights = list(attention_layer_2[neighbors, head_to_visualize].cpu().numpy())
 
@@ -203,10 +204,16 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
 
             # Prepare the visualization settings dictionary
             visual_style = {}
+            # todo: make sure labels are correctly assigned
             visual_style["edge_width"] = attention_weights  # make edges as thick as the corresponding attention weight
+            # This is the only part that's Cora specific as Cora has 7 labels
+            if dataset_name.lower() == DatasetType.CORA.name.lower():
+                visual_style["vertex_color"] = [label_to_color_map[label] for label in labels]
+            else:
+                print('Feel free to add custom color scheme for your specific dataset. Using igraph default coloring.')
             visual_style["layout"] = ig_graph.layout_reingold_tilford_circular()
             ig.plot(ig_graph, **visual_style)
-            
+
             # This is the only part that's Cora specific as Cora has 7 labels
             # if dataset_name.lower() == DatasetType.CORA.name.lower():
             #     visual_style["vertex_color"] = [label_to_color_map[label] for label in node_labels]

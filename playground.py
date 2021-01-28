@@ -7,15 +7,17 @@ import torch.nn as nn
 import scipy.sparse as sp
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 from utils.data_loading import normalize_features_sparse, normalize_features_dense, pickle_read, load_graph_data
 from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType, LayerType
 from models.definitions.GAT import GAT
 from utils.utils import print_model_metadata
+from train import train_gat, get_training_args
 
 
-def profile_different_matrix_formats(node_features_csr):
+def profile_sparse_matrix_formats(node_features_csr):
     """
         Shows the benefit of using CORRECT sparse formats during processing, results:
             CSR >> LIL >> dense format, CSR is ~2x faster from LIL and ~8x faster from dense format
@@ -50,10 +52,58 @@ def profile_different_matrix_formats(node_features_csr):
     print(f'time elapsed, dense = {(time.time() - ts) / num_loops}')
 
 
-# todo: profile all the imps
-# todo: add jupyter
-def profiling_different_gat_implementations():
-    print('todo profile 3 different implementations: time and memory-wise.')
+def profile_gat_implementations():
+    """
+    Currently for 100 epochs the time and memory are (on my machine - RTX 2080):
+        * implementation 1 (IMP1): time = 37.38 seconds
+        * implementation 2 (IMP2): time = 32.59 seconds
+        * implementation 3 (IMP3): time = 1.91 seconds
+
+    """
+
+    training_config = get_training_args()
+    training_config['num_of_epochs'] = 100  # IMP1 and IMP2 take more time so better to drop this one lower
+    training_config['should_test'] = False
+    training_config['should_visualize'] = False
+    training_config['enable_tensorboard'] = False
+    training_config['console_log_freq'] = None
+    training_config['checkpoint_freq'] = None
+
+    def to_GBs(memory_in_bytes):  # beautify memory output - helper function
+        return f'{memory_in_bytes / 2**30:.2f} GBs'
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        available_gpu_memory = torch.cuda.get_device_properties(device).total_memory
+        print(f'Available memory on default GPU: {to_GBs(available_gpu_memory)}')
+    else:
+        print('GPU not available. :(')
+
+    gat_layer_implementations = [layer_type for layer_type in LayerType]
+
+    # Iterate over all the available GAT implementations
+    for gat_layer_imp in gat_layer_implementations:
+        training_config['layer_type'] = gat_layer_imp  # modify the training config so as to use different imp
+
+        ts = time.time()
+        print('*' * 20)
+        print(f'Starting {gat_layer_imp.name} GAT training.')
+        train_gat(training_config)
+        print(f'Layer type = {gat_layer_imp.name}, training duration = {time.time()-ts:.2f} [s]')
+
+        # These 2 methods basically query this function: torch.cuda.memory_stats(), which contains much more detail.
+        # Here I just care about the peak memory usage i.e. whether you can train GAT on your device.
+
+        # The actual number of GPU bytes needed to store the GPU tensors I use (since the start of the program)
+        max_memory_allocated = torch.cuda.max_memory_allocated(device)
+        # The above + the caching GPU memory used by PyTorch's caching allocator (since the start of the program)
+        max_memory_reserved = torch.cuda.max_memory_reserved(device)
+        # Reset the peaks so that we get correct results for the next GAT implementation. Otherwise, since the above
+        # methods are measuring the peaks since the start of the program one of the less efficient (memory-wise)
+        # implementations may eclipse the others.
+        torch.cuda.reset_peak_memory_stats(device)
+
+        print(f'Max mem allocated = {to_GBs(max_memory_allocated)}, max mem reserved = {to_GBs(max_memory_reserved)}.')
 
 
 def visualize_embedding_space(model_name = r'gat_000000.pth', dataset_name = DatasetType.CORA.name):
@@ -122,4 +172,4 @@ if __name__ == '__main__':
     # node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
     # profile_different_matrix_formats(node_features_csr)
     # visualize_embedding_space()
-    profiling_different_gat_implementations()
+    profile_gat_implementations()

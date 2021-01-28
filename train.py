@@ -1,7 +1,5 @@
 import argparse
-import os
 import time
-import enum
 
 
 import torch
@@ -16,6 +14,9 @@ from utils.constants import *
 import utils.utils as utils
 
 
+# todo: add jupyter notebook
+
+
 # Global vars used for early stopping. After some number of epochs (as defined by the patience_period var) without any
 # improvement on the validation dataset (measured via accuracy metric), we'll break out from the training loop.
 BEST_VAL_ACC = 0
@@ -25,12 +26,14 @@ writer = SummaryWriter()  # (tensorboard) writer will output to ./runs/ director
 
 
 # Simple decorator function so that I don't have to pass arguments that don't change from epoch to epoch
-def get_main_loop(gat, cross_entropy_loss, optimizer, node_features, node_labels, edge_index, train_indices, val_indices, test_indices, patience_period, time_start):
+def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, node_labels, edge_index, train_indices, val_indices, test_indices, patience_period, time_start):
 
     node_dim = 0  # this will likely change as soon as I add an inductive example (Cora is transductive)
+
     train_labels = node_labels.index_select(node_dim, train_indices)
     val_labels = node_labels.index_select(node_dim, val_indices)
     test_labels = node_labels.index_select(node_dim, test_indices)
+
     graph_data = (node_features, edge_index)
 
     def get_node_indices(phase):
@@ -91,23 +94,23 @@ def get_main_loop(gat, cross_entropy_loss, optimizer, node_features, node_labels
 
         if phase == LoopPhase.TRAIN:
             # Log metrics
-            if training_config['enable_tensorboard']:
+            if config['enable_tensorboard']:
                 writer.add_scalar('training_loss', loss.item(), epoch)
                 writer.add_scalar('training_acc', accuracy, epoch)
 
             # Save model checkpoint
-            if training_config['checkpoint_freq'] is not None and (epoch + 1) % training_config['checkpoint_freq'] == 0:
+            if config['checkpoint_freq'] is not None and (epoch + 1) % config['checkpoint_freq'] == 0:
                 ckpt_model_name = f"gat_ckpt_epoch_{epoch + 1}.pth"
-                torch.save(utils.get_training_state(training_config, gat), os.path.join(CHECKPOINTS_PATH, ckpt_model_name))
+                torch.save(utils.get_training_state(config, gat), os.path.join(CHECKPOINTS_PATH, ckpt_model_name))
 
         elif phase == LoopPhase.VAL:
             # Log metrics
-            if training_config['enable_tensorboard']:
+            if config['enable_tensorboard']:
                 writer.add_scalar('val_loss', loss.item(), epoch)
                 writer.add_scalar('val_acc', accuracy, epoch)
 
             # Log to console
-            if training_config['console_log_freq'] is not None and epoch % training_config['console_log_freq'] == 0:
+            if config['console_log_freq'] is not None and epoch % config['console_log_freq'] == 0:
                 print(f'GAT training: time elapsed= {(time.time() - time_start):.2f} [s] | epoch={epoch + 1} | val acc={accuracy}')
 
             # Break logic
@@ -127,26 +130,27 @@ def get_main_loop(gat, cross_entropy_loss, optimizer, node_features, node_labels
 
 
 # todo: see why I'm overfitting and why is IMP1 superior over IMP2/3???
-def train_gat(training_config):
+def train_gat(config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
     # Step 1: load the graph data
-    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(training_config, device)
+    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(config, device)
 
     # Step 2: prepare the model
     gat = GAT(
-        num_of_layers=training_config['num_of_layers'],
-        num_heads_per_layer=training_config['num_heads_per_layer'],
-        num_features_per_layer=training_config['num_features_per_layer'],
-        layer_type=training_config['layer_type']
+        num_of_layers=config['num_of_layers'],
+        num_heads_per_layer=config['num_heads_per_layer'],
+        num_features_per_layer=config['num_features_per_layer'],
+        layer_type=config['layer_type']
     ).to(device)
 
     # Step 3: Prepare other training related utilities (loss & optimizer and decorator function)
     loss_fn = nn.CrossEntropyLoss(reduction='mean')
-    optimizer = Adam(gat.parameters(), lr=training_config['lr'], weight_decay=training_config['weight_decay'])
+    optimizer = Adam(gat.parameters(), lr=config['lr'], weight_decay=config['weight_decay'])
 
     # The decorator function makes things cleaner since there is a lot of redundancy between the train and val loops
     main_loop = get_main_loop(
+        config,
         gat,
         loss_fn,
         optimizer,
@@ -156,11 +160,11 @@ def train_gat(training_config):
         train_indices,
         val_indices,
         test_indices,
-        training_config['patience_period'],
+        config['patience_period'],
         time.time())
 
     # Step 4: Start the training procedure
-    for epoch in range(training_config['num_of_epochs']):
+    for epoch in range(config['num_of_epochs']):
         # Training loop
         main_loop(phase=LoopPhase.TRAIN, epoch=epoch)
 
@@ -175,17 +179,16 @@ def train_gat(training_config):
     # Step 5: potentially test your model
     # Don't overfit to the test dataset - only when you've fine-tuned your model on the validation dataset should you
     # report your final loss and accuracy on the test dataset. Friends don't let friends overfit to the test data. <3
-    if training_config['should_test']:
+    if config['should_test']:
         test_acc = main_loop(phase=LoopPhase.TEST)
         print(f'Test accuracy = {test_acc}')
 
     # Save the latest GAT in the binaries directory
-    torch.save(utils.get_training_state(training_config, gat), os.path.join(BINARIES_PATH, utils.get_available_binary_name()))
+    torch.save(utils.get_training_state(config, gat), os.path.join(BINARIES_PATH, utils.get_available_binary_name()))
     print('Training completed.')
 
 
-if __name__ == '__main__':
-
+def get_training_args():
     parser = argparse.ArgumentParser()
 
     # Training related
@@ -201,8 +204,8 @@ if __name__ == '__main__':
 
     # Logging/debugging/checkpoint related (helps a lot with experimentation)
     parser.add_argument("--enable_tensorboard", action='store_true', help="enable tensorboard logging")
-    parser.add_argument("--console_log_freq", type=int, help="log to output console (epoch) freq", default=100)
-    parser.add_argument("--checkpoint_freq", type=int, help="checkpoint model saving (epoch) freq", default=1000)
+    parser.add_argument("--console_log_freq", type=int, help="log to output console (epoch) freq (None for no logging)", default=100)
+    parser.add_argument("--checkpoint_freq", type=int, help="checkpoint model saving (epoch) freq (None for no logging)", default=1000)
     args = parser.parse_args()
 
     # Model architecture related
@@ -221,5 +224,10 @@ if __name__ == '__main__':
     # Add additional config information
     training_config.update(gat_config)
 
+    return training_config
+
+
+if __name__ == '__main__':
+
     # Train the graph attention network
-    train_gat(training_config)
+    train_gat(get_training_args())

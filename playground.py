@@ -12,7 +12,7 @@ import numpy as np
 
 
 from utils.data_loading import normalize_features_sparse, normalize_features_dense, pickle_save, pickle_read, load_graph_data
-from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType, LayerType, DATA_DIR_PATH
+from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType, LayerType, DATA_DIR_PATH, name_to_layer_type, label_to_color_map
 from models.definitions.GAT import GAT
 from utils.utils import print_model_metadata
 from train import train_gat, get_training_args
@@ -57,7 +57,7 @@ def to_GBs(memory_in_bytes):  # beautify memory output - helper function
     return f'{memory_in_bytes / 2**30:.2f} GBs'
 
 
-def profile_gat_implementations(skip_if_profiling_info_cached=True):
+def profile_gat_implementations(skip_if_profiling_info_cached=False):
     """
     Currently for 1000 epochs of GAT training the time and memory consumption are  (on my machine - RTX 2080):
         * implementation 1 (IMP1): time ~ 34 seconds, max memory allocated = 1.5 GB and reserved = 1.54 GB
@@ -66,12 +66,12 @@ def profile_gat_implementations(skip_if_profiling_info_cached=True):
 
     """
 
-    num_of_profiling_loops = 100
+    num_of_profiling_loops = 20
     mem_profiling_dump_filepath = os.path.join(DATA_DIR_PATH, 'memory.dict')
     time_profiling_dump_filepath = os.path.join(DATA_DIR_PATH, 'timing.dict')
 
     training_config = get_training_args()
-    training_config['num_of_epochs'] = 100  # IMP1 and IMP2 take more time so better to drop this one lower
+    training_config['num_of_epochs'] = 500  # IMP1 and IMP2 take more time so better to drop this one lower
     training_config['should_test'] = False
     training_config['should_visualize'] = False
     training_config['enable_tensorboard'] = False
@@ -97,6 +97,7 @@ def profile_gat_implementations(skip_if_profiling_info_cached=True):
 
         # We need this loop in order to find the average time and memory consumption more robustly
         for run_id in range(num_of_profiling_loops):
+            print(f'Profiling, run_id = {run_id}')
 
             # Iterate over all the available GAT implementations
             for gat_layer_imp in gat_layer_implementations:
@@ -106,16 +107,16 @@ def profile_gat_implementations(skip_if_profiling_info_cached=True):
                 train_gat(training_config)
                 results_time[gat_layer_imp.name].append(time.time()-ts)  # collect timing information
 
-                # These 2 methods basically query this function: torch.cuda.memory_stats(), which contains much more detail.
+                # These 2 methods basically query this function: torch.cuda.memory_stats() - contains much more detail.
                 # Here I just care about the peak memory usage i.e. whether you can train GAT on your device.
 
                 # The actual number of GPU bytes needed to store the GPU tensors I use (since the start of the program)
                 max_memory_allocated = torch.cuda.max_memory_allocated(device)
-                # The above + the caching GPU memory used by PyTorch's caching allocator (since the start of the program)
+                # The above + caching GPU memory used by PyTorch's caching allocator (since the start of the program)
                 max_memory_reserved = torch.cuda.max_memory_reserved(device)
-                # Reset the peaks so that we get correct results for the next GAT implementation. Otherwise, since the above
-                # methods are measuring the peaks since the start of the program one of the less efficient (memory-wise)
-                # implementations may eclipse the others.
+                # Reset the peaks so that we get correct results for the next GAT implementation. Otherwise, since the
+                # above methods are measuring the peaks since the start of the program one of the less efficient
+                # (memory-wise) implementations may eclipse the others.
                 torch.cuda.reset_peak_memory_stats(device)
 
                 results_memory[gat_layer_imp.name].append((max_memory_allocated, max_memory_reserved))  # collect mem info
@@ -131,10 +132,13 @@ def profile_gat_implementations(skip_if_profiling_info_cached=True):
         print('*' * 20)
         print(f'{imp_name} GAT training.')
         print(f'Layer type = {gat_layer_imp.name}, training duration = {np.mean(results_time[imp_name]):.2f} [s]')
-        print(f'Max mem allocated = {to_GBs(results_memory[imp_name])}, max mem reserved = {to_GBs(max_memory_reserved)}.')
+
+        max_memory_allocated = np.mean([mem_tuple[0] for mem_tuple in results_memory[imp_name]])
+        max_memory_reserved = np.mean([mem_tuple[1] for mem_tuple in results_memory[imp_name]])
+        print(f'Max mem allocated = {to_GBs(max_memory_allocated)}, max mem reserved = {to_GBs(max_memory_reserved)}.')
 
 
-def visualize_embedding_space(model_name = r'gat_000000.pth', dataset_name = DatasetType.CORA.name):
+def visualize_embedding_space(model_name=r'gat_000000.pth', dataset_name=DatasetType.CORA.name, should_visualize=False):
     """
     Using t-SNE to visualize GAT embeddings in 2D space.
     Check out this one for more intuition on how to tune t-SNE: https://distill.pub/2016/misread-tsne/
@@ -148,45 +152,51 @@ def visualize_embedding_space(model_name = r'gat_000000.pth', dataset_name = Dat
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
+    config = {
+        'dataset_name': dataset_name,
+        'layer_type': LayerType.IMP3,
+        'should_visualize': should_visualize
+    }
+
     # Step 1: Prepare the data
-    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(dataset_name, layer_type=LayerType.IMP3, device=device, should_visualize=False)
+    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(config, device)
 
     # Step 2: Prepare the model
     model_path = os.path.join(BINARIES_PATH, model_name)
     model_state = torch.load(model_path)
 
-    gat = GAT(model_state['num_of_layers'], model_state['num_heads_per_layer'], model_state['num_features_per_layer']).to(device)
+    gat = GAT(
+        num_of_layers=model_state['num_of_layers'],
+        num_heads_per_layer=model_state['num_heads_per_layer'],
+        num_features_per_layer=model_state['num_features_per_layer'],
+        layer_type=name_to_layer_type(model_state['layer_type'])
+    ).to(device)
+
     print_model_metadata(model_state)
     gat.load_state_dict(model_state["state_dict"], strict=True)
     gat.eval()
 
-    # Step 3: Run predictions
     with torch.no_grad():
-        all_nodes_distributions, _ = gat((node_features, edge_index))
+        # Step 3: Run predictions and collect the high dimensional data
+        all_nodes_unnormalized_scores, _ = gat((node_features, edge_index))
 
-        all_nodes = all_nodes_distributions.cpu().numpy()
+        all_nodes_unnormalized_scores = all_nodes_unnormalized_scores.cpu().numpy()
         node_labels = node_labels.cpu().numpy()
         num_classes = len(set(node_labels))
 
-        perplexities = [30]
-        t_sne_embeddings_list = [TSNE(n_components=2, perplexity=p, method='barnes_hut').fit_transform(all_nodes) for p in perplexities]
+        # Step 4: Calculate the low dim t-SNE representation
 
-        # fig, axs = plt.subplots(3, 2)
+        # Feel free to experiment with perplexity it's arguable the most important parameter of t-SNE and it basically
+        # controls the standard deviation of Gaussians i.e. the size of the neighborhoods in high dim (original) space.
+        # Simply put the goal of t-SNE is to minimize the KL-divergence between joint Gaussian distribution fit over
+        # high dim points and between the t-Student distribution fit over low dimension points (the ones we're plotting)
+        # Intuitively, by doing this, we preserve the similarities (relationships) between the high and low dim points.
+        # This (probably) won't make much sense if you're not already familiar with t-SNE, God knows I've tried. :P
+        t_sne_embeddings = TSNE(n_components=2, perplexity=30, method='barnes_hut').fit_transform(all_nodes_unnormalized_scores)
 
-        # plt.figure(figsize=(8, 8))
-
-        # for cnt, t_sne_embeddings in enumerate(t_sne_embeddings_list):
-        #     col = cnt % 2
-        #     row = int(cnt / 2)
-        for i in range(num_classes):
-            plt.scatter(t_sne_embeddings_list[0][node_labels == i, 0], t_sne_embeddings_list[0][node_labels == i, 1], s=20, color=colors[i])
-        # plt.axis('off')
+        for class_id in range(num_classes):
+            plt.scatter(t_sne_embeddings[node_labels == class_id, 0], t_sne_embeddings[node_labels == class_id, 1], s=20, color=label_to_color_map[class_id])
         plt.show()
-
-
-colors = [
-    '#ffc0cb', '#bada55', '#008080', '#420420', '#7fe5f0', '#065535', '#ffd700'
-]
 
 
 # todo: visualize attention
@@ -199,5 +209,5 @@ if __name__ == '__main__':
     # shape = (N, F), where N is the number of nodes and F is the number of features
     # node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
     # profile_different_matrix_formats(node_features_csr)
-    # visualize_embedding_space()
-    profile_gat_implementations()
+    visualize_embedding_space()
+    # profile_gat_implementations()

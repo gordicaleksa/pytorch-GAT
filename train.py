@@ -5,7 +5,6 @@ import time
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-from torch.utils.tensorboard import SummaryWriter
 
 
 from models.definitions.GAT import GAT
@@ -15,14 +14,6 @@ import utils.utils as utils
 
 
 # todo: add jupyter notebook
-
-
-# Global vars used for early stopping. After some number of epochs (as defined by the patience_period var) without any
-# improvement on the validation dataset (measured via accuracy metric), we'll break out from the training loop.
-BEST_VAL_ACC = 0
-PATIENCE_CNT = 0
-
-writer = SummaryWriter()  # (tensorboard) writer will output to ./runs/ directory by default
 
 
 # Simple decorator function so that I don't have to pass arguments that don't change from epoch to epoch
@@ -131,6 +122,8 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
 
 # todo: see why I'm overfitting and why is IMP1 superior over IMP2/3???
 def train_gat(config):
+    global BEST_VAL_ACC
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
     # Step 1: load the graph data
@@ -164,6 +157,7 @@ def train_gat(config):
         time.time())
 
     # Step 4: Start the training procedure
+    BEST_VAL_ACC, PATIENCE_CNT = [0, 0]
     for epoch in range(config['num_of_epochs']):
         # Training loop
         main_loop(phase=LoopPhase.TRAIN, epoch=epoch)
@@ -185,7 +179,6 @@ def train_gat(config):
 
     # Save the latest GAT in the binaries directory
     torch.save(utils.get_training_state(config, gat), os.path.join(BINARIES_PATH, utils.get_available_binary_name()))
-    print('Training completed.')
 
 
 def get_training_args():

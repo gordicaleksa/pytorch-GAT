@@ -113,6 +113,11 @@ def pickle_read(path):
     return out
 
 
+def pickle_save(path, data):
+    with open(path, 'wb') as file:
+        pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
+
+
 def normalize_features_sparse(node_features_sparse):
     assert sp.issparse(node_features_sparse), f'Expected a sparse matrix, got {node_features_sparse}.'
 

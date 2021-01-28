@@ -4,11 +4,11 @@ from collections import defaultdict
 
 
 import torch
-import torch.nn as nn
 import scipy.sparse as sp
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 import numpy as np
+import igraph as ig
 
 
 from utils.data_loading import normalize_features_sparse, normalize_features_dense, pickle_save, pickle_read, load_graph_data
@@ -138,7 +138,7 @@ def profile_gat_implementations(skip_if_profiling_info_cached=False):
         print(f'Max mem allocated = {to_GBs(max_memory_allocated)}, max mem reserved = {to_GBs(max_memory_reserved)}.')
 
 
-def visualize_embedding_space(model_name=r'gat_000000.pth', dataset_name=DatasetType.CORA.name, should_visualize=False):
+def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset_name=DatasetType.CORA.name, visualize_attention=True):
     """
     Using t-SNE to visualize GAT embeddings in 2D space.
     Check out this one for more intuition on how to tune t-SNE: https://distill.pub/2016/misread-tsne/
@@ -155,7 +155,7 @@ def visualize_embedding_space(model_name=r'gat_000000.pth', dataset_name=Dataset
     config = {
         'dataset_name': dataset_name,
         'layer_type': LayerType.IMP3,
-        'should_visualize': should_visualize
+        'should_visualize': False  # don't visualize the dataset
     }
 
     # Step 1: Prepare the data
@@ -169,7 +169,8 @@ def visualize_embedding_space(model_name=r'gat_000000.pth', dataset_name=Dataset
         num_of_layers=model_state['num_of_layers'],
         num_heads_per_layer=model_state['num_heads_per_layer'],
         num_features_per_layer=model_state['num_features_per_layer'],
-        layer_type=name_to_layer_type(model_state['layer_type'])
+        layer_type=name_to_layer_type(model_state['layer_type']),
+        log_attention_weights=True
     ).to(device)
 
     print_model_metadata(model_state)
@@ -179,8 +180,43 @@ def visualize_embedding_space(model_name=r'gat_000000.pth', dataset_name=Dataset
     with torch.no_grad():
         # Step 3: Run predictions and collect the high dimensional data
         all_nodes_unnormalized_scores, _ = gat((node_features, edge_index))
-
         all_nodes_unnormalized_scores = all_nodes_unnormalized_scores.cpu().numpy()
+
+    # todo: visualize attention
+    if visualize_attention:
+        # todo: pick some interesting ones with nice degree
+        if config['layer_type'] == LayerType.IMP3:
+            head_to_visualize = 0  # todo: do it like for the transformer multiple heads
+            node_of_interest = 1358  # 1701  306 1358
+            target_nodes = edge_index[1]
+            source_nodes = edge_index[0]
+            indices = torch.eq(target_nodes, node_of_interest)
+            neighbors = list(source_nodes[indices].cpu().numpy())
+            attention_layer_2 = gat.gat_net[1].attention_weights.squeeze(dim=-1)
+            attention_weights = list(attention_layer_2[neighbors, head_to_visualize].cpu().numpy())
+
+            neighbors_to_igraph_id = dict(zip(neighbors, range(len(neighbors))))
+
+            ig_graph = ig.Graph()
+            ig_graph.add_vertices(len(neighbors))
+            ig_graph.add_edges([(neighbors_to_igraph_id[neighbor], neighbors_to_igraph_id[node_of_interest]) for neighbor in neighbors])
+
+            # Prepare the visualization settings dictionary
+            visual_style = {}
+            visual_style["edge_width"] = attention_weights  # make edges as thick as the corresponding attention weight
+            visual_style["layout"] = ig_graph.layout_reingold_tilford_circular()
+            ig.plot(ig_graph, **visual_style)
+            
+            # This is the only part that's Cora specific as Cora has 7 labels
+            # if dataset_name.lower() == DatasetType.CORA.name.lower():
+            #     visual_style["vertex_color"] = [label_to_color_map[label] for label in node_labels]
+            # else:
+            #     print('Feel free to add custom color scheme for your specific dataset. Using igraph default coloring.')
+
+        else:
+            print(f'Attention analysis not yet implemented for layer type = {config["layer_type"]}.')
+
+    else:  # visualize embeddings (using t-SNE)
         node_labels = node_labels.cpu().numpy()
         num_classes = len(set(node_labels))
 
@@ -195,19 +231,15 @@ def visualize_embedding_space(model_name=r'gat_000000.pth', dataset_name=Dataset
         t_sne_embeddings = TSNE(n_components=2, perplexity=30, method='barnes_hut').fit_transform(all_nodes_unnormalized_scores)
 
         for class_id in range(num_classes):
+            # We extract the points whose true label equals class_id and we color them in the same way, hopefully
+            # they'll be clustered together on the 2D chart - that would mean that GAT learned good representations!
             plt.scatter(t_sne_embeddings[node_labels == class_id, 0], t_sne_embeddings[node_labels == class_id, 1], s=20, color=label_to_color_map[class_id])
         plt.show()
-
-
-# todo: visualize attention
-# todo: add env and README files
-def visualize_attention():
-    print('todo')
 
 
 if __name__ == '__main__':
     # shape = (N, F), where N is the number of nodes and F is the number of features
     # node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
     # profile_different_matrix_formats(node_features_csr)
-    visualize_embedding_space()
+    visualize_embedding_space_or_attention()
     # profile_gat_implementations()

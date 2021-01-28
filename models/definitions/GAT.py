@@ -12,7 +12,7 @@ from utils.constants import LayerType
 # todo: 2 main future tasks: inductive setup + torch sparse imp (great learning exp)
 # todo: be explicit about shapes throughout the code
 class GAT(torch.nn.Module):
-    def __init__(self, num_of_layers, num_heads_per_layer, num_features_per_layer, dropout=0.6, layer_type=LayerType.IMP3):
+    def __init__(self, num_of_layers, num_heads_per_layer, num_features_per_layer, dropout=0.6, layer_type=LayerType.IMP3, log_attention_weights=False):
         super().__init__()
 
         # Short names for readability (much shorter lines)
@@ -22,8 +22,8 @@ class GAT(torch.nn.Module):
         GATLayer = get_layer_type(layer_type)
 
         self.gat_net = nn.Sequential(
-            *[GATLayer(nfpl[i - 1] * nhpl[i-2], nfpl[i], nhpl[i-1], dropout_prob=dropout) for i in range(1, num_of_layers)] if num_of_layers >= 2 else nn.Identity(),
-            GATLayer(nfpl[-2] * nhpl[-2], nfpl[-1], nhpl[-1], dropout_prob=dropout, concat=False, activation=None)
+            *[GATLayer(nfpl[i - 1] * nhpl[i-2], nfpl[i], nhpl[i-1], dropout_prob=dropout, log_attention_weights=log_attention_weights) for i in range(1, num_of_layers)] if num_of_layers >= 2 else nn.Identity(),
+            GATLayer(nfpl[-2] * nhpl[-2], nfpl[-1], nhpl[-1], dropout_prob=dropout, concat=False, activation=None, log_attention_weights=log_attention_weights)
         )
 
     # data is just a (in_nodes_features, edge_index) tuple, I had to do it like this because of the nn.Sequential:

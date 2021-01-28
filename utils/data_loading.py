@@ -179,4 +179,9 @@ def build_edge_index_nx(adjacency_list_dict):
 # For data loading testing purposes feel free to ignore
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU
-    load_graph_data(DatasetType.CORA.name, device, should_visualize=True)
+    config = {
+        'dataset_name': DatasetType.CORA.name,
+        'layer_type': LayerType.IMP3,
+        'should_visualize': False  # don't visualize the dataset
+    }
+    load_graph_data(config, device)

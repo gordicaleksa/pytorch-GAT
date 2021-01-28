@@ -57,6 +57,9 @@ def plot_in_out_degree_distributions(edge_index, dataset_name):
         out_degrees[source_node_id] += 1  # source node points towards some other node -> increment it's out degree
         in_degrees[target_node_id] += 1
 
+    k = 3
+    print(f'{k} Node with highest degree are = {np.argpartition(out_degrees, -k)[-k:]}')
+
     hist = np.zeros(np.max(out_degrees) + 1)
     for out_degree in out_degrees:
         hist[out_degree] += 1

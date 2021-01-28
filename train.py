@@ -14,6 +14,7 @@ import utils.utils as utils
 
 
 # todo: add jupyter notebook
+# todo: add env and README files
 
 
 # Simple decorator function so that I don't have to pass arguments that don't change from epoch to epoch

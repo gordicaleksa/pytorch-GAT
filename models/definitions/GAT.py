@@ -7,7 +7,10 @@ from utils.constants import LayerType
 
 # todo: if anybody is willing feel free to submit a PR with imp using torch sparse API
 # todo: 2 main future tasks: inductive setup + torch sparse imp (great learning exp)
-# todo: be explicit about shapes throughout the code
+# todo: be explicit about shapes throughout the
+# todo: consider moving beginning and end of the forward function to the parent class
+# todo: potentially reduce number of params in skip_proj from NH*FOUT to FOUT
+
 
 class GAT(torch.nn.Module):
 
@@ -83,7 +86,7 @@ class GATLayer(torch.nn.Module):
             self.scoring_fn_source = nn.Parameter(torch.Tensor(1, num_of_heads, num_out_features))
             # self.scoring_fn = nn.Parameter(torch.Tensor(num_of_heads, 1, 2 * num_out_features))
 
-        # Bias is not crucial to GAT method (I pinged the main author, Petar, on this one)
+        # Bias is definitely not crucial to GAT - feel free to experiment (I pinged the main author, Petar, on this one)
         if bias and concat:
             self.bias = nn.Parameter(torch.Tensor(num_of_heads * num_out_features))
         elif bias and not concat:
@@ -146,10 +149,12 @@ class GATLayerImp3(GATLayer):
     trg_nodes_dim = 1  # position of target nodes in edge index
     scatter_dim = 0    # dimension along which the scatters happen
     nodes_dim = 0      # node dimension
+    head_dim = 1       # attention head dim
 
     def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
                  dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
 
+        # Delegate initialization to the base class
         super().__init__(num_in_features, num_out_features, num_of_heads, LayerType.IMP3, concat, activation, dropout_prob,
                       add_skip_connection, bias, log_attention_weights)
 
@@ -157,58 +162,60 @@ class GATLayerImp3(GATLayer):
         in_nodes_features, edge_index = data  # unpack data
         num_of_nodes = in_nodes_features.shape[self.nodes_dim]
 
-        # shape = (N, FIN) where N - number of nodes in the graph, FIN number of input features per node
+        # shape = (N, FIN) where N - number of nodes in the graph, FIN - number of input features per node
         # We apply the dropout to all of the input node features (as mentioned in the paper)
+        # Note: for Cora features are already super sparse so it's questionable how much this actually helps
         in_nodes_features = self.dropout(in_nodes_features)
 
-        # shape = (N, NH, FOUT) where NH - number of heads, FOUT number of output features per head
+        # shape = (N, NH, FOUT) where NH - number of heads, FOUT - number of output features per head
         # We project the input node features into NH independent output features (one for each attention head)
         nodes_features_proj = self.linear_proj(in_nodes_features).view(-1, self.num_of_heads, self.num_out_features)
 
         nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
 
         # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
-        # shape = (N, NH), dim=-1 squeezes the last dimension
-        # note: torch.sum() is as performant as .sum() in my experiments
+        # shape = (N, NH, FOUT) * (1, NH, FOUT) -> (N, NH, 1) -> (N, NH) because sum squeezes the last dimension
+        # Optimization note: torch.sum() is as performant as .sum() in my experiments
         scores_source = (nodes_features_proj * self.scoring_fn_source).sum(dim=-1)
         scores_target = (nodes_features_proj * self.scoring_fn_target).sum(dim=-1)
 
-        # We simply repeat the scores for source/target nodes based on the edge index
-        # scores shape = (E, NH), where E is the number of edges in the graph
-        # nodes_features_proj_lifted shape = (E, NH, FOUT)
+        # We simply copy (lift) the scores for source/target nodes based on the edge index
+        # scores shape = (E, NH), nodes_features_proj_lifted shape = (E, NH, FOUT), E - number of edges in the graph
         scores_source_lifted, scores_target_lifted, nodes_features_proj_lifted = self.lift(scores_source, scores_target, nodes_features_proj, edge_index)
         scores_per_edge = self.leakyReLU(scores_source_lifted + scores_target_lifted)
 
+        # shape = (E, NH, 1)
         attentions_per_edge = self.neighborhood_aware_softmax(scores_per_edge, edge_index[self.trg_nodes_dim], num_of_nodes)
         # Add stochasticity to neighborhood aggregation
         attentions_per_edge = self.dropout(attentions_per_edge)
 
         # Element-wise (aka Hadamard) product. Operator * does the same thing as torch.mul
+        # shape = (E, NH, FOUT) * (E, NH, 1) -> (E, NH, FOUT), 1 gets broadcast into FOUT
         nodes_features_proj_lifted_weighted = nodes_features_proj_lifted * attentions_per_edge
 
-        # This part adds up weighted, projected neighborhoods for every target node
-        size = list(nodes_features_proj_lifted_weighted.shape)  # convert to list otherwise assignment is not possible
-        size[self.scatter_dim] = num_of_nodes  # shape = (N, NH, FOUT)
-        out_nodes_features = torch.zeros(size, dtype=in_nodes_features.dtype, device=in_nodes_features.device)
-        trg_index_broadcasted = self.broadcast(edge_index[self.trg_nodes_dim], nodes_features_proj_lifted_weighted)
-        out_nodes_features.scatter_add_(self.scatter_dim, trg_index_broadcasted, nodes_features_proj_lifted_weighted)
+        # This part sums up weighted and projected neighborhood feature vectors for every target node
+        # shape = (N, NH, FOUT)
+        out_nodes_features = self.sum_neighbors(nodes_features_proj_lifted_weighted, edge_index, num_of_nodes)
 
-        # todo: consider moving beginning and end of the forward function to the parent class
-        # todo: consider adding skip/residual connection
-
-        if self.log_attention_weights:
+        if self.log_attention_weights:  # potentially log for later visualization in playground.py
             self.attention_weights = attentions_per_edge
 
-        if self.add_skip_connection:
-            if out_nodes_features.shape[-1] == in_nodes_features.shape[-1]:
+        if self.add_skip_connection:  # add skip or residual connection
+            if out_nodes_features.shape[-1] == in_nodes_features.shape[-1]:  # if FIN == FOUT
+                # unsqueeze does this: (N, FIN) -> (N, 1, FIN), out features are (N, NH, FOUT) so 1 gets broadcast to NH
+                # thus we're basically copying input vectors NH times and adding to processed vectors
                 out_nodes_features += in_nodes_features.unsqueeze(1)
             else:
+                # FIN != FOUT so we need to project input feature vectors into dimension that can be added to output
+                # feature vectors. skip_proj adds lots of additional capacity which may cause overfitting.
                 out_nodes_features += self.skip_proj(in_nodes_features).view(-1, self.num_of_heads, self.num_out_features)
 
         if self.concat:
+            # shape = (N, NH, FOUT) -> (N, NH*FOUT)
             out_nodes_features = out_nodes_features.view(-1, self.num_of_heads * self.num_out_features)
         else:
-            out_nodes_features = out_nodes_features.mean(dim=1)
+            # shape = (N, NH, FOUT) -> (N, FOUT)
+            out_nodes_features = out_nodes_features.mean(dim=self.head_dim)
 
         if self.bias is not None:
             out_nodes_features += self.bias
@@ -219,10 +226,16 @@ class GATLayerImp3(GATLayer):
     #
     # Helper functions
     #
-    # todo: consider making it modular and not specialized like currently
+
     def lift(self, scores_source, scores_target, nodes_features_matrix_proj, edge_index):
+        """
+        Lifts i.e. duplicates certain vectors depending on the edge index.
+        One of the tensor dims goes from N -> E (that's where the "lift" comes from).
+
+        """
         src_nodes_index = edge_index[self.src_nodes_dim]
         trg_nodes_index = edge_index[self.trg_nodes_dim]
+
         # Using index_select is faster than "normal" indexing (scores_source[src_nodes_index]) in PyTorch!
         scores_source = scores_source.index_select(self.nodes_dim, src_nodes_index)
         scores_target = scores_target.index_select(self.nodes_dim, trg_nodes_index)
@@ -282,6 +295,15 @@ class GATLayerImp3(GATLayer):
         # Expand again so that we can use it as a softmax denominator. e.g. node i's sum will be copied to
         # all the locations where the source nodes pointed to i (as dictated by the target index)
         return neighborhood_sums.index_select(self.nodes_dim, trg_index)
+
+    def sum_neighbors(self, nodes_features_proj_lifted_weighted, edge_index, num_of_nodes):
+        size = list(nodes_features_proj_lifted_weighted.shape)  # convert to list otherwise assignment is not possible
+        size[self.scatter_dim] = num_of_nodes  # shape = (N, NH, FOUT)
+        out_nodes_features = torch.zeros(size, dtype=in_nodes_features.dtype, device=in_nodes_features.device)
+        trg_index_broadcasted = self.broadcast(edge_index[self.trg_nodes_dim], nodes_features_proj_lifted_weighted)
+        out_nodes_features.scatter_add_(self.scatter_dim, trg_index_broadcasted, nodes_features_proj_lifted_weighted)
+
+        return out_nodes_features
 
 
 # todo: the idea for the imp 2 or 1 was to use torch sparse (maybe add 4th imp lol)

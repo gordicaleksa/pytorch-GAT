@@ -14,7 +14,7 @@ import igraph as ig
 from utils.data_loading import normalize_features_sparse, normalize_features_dense, pickle_save, pickle_read, load_graph_data
 from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType, LayerType, DATA_DIR_PATH, name_to_layer_type, label_to_color_map
 from models.definitions.GAT import GAT
-from utils.utils import print_model_metadata
+from utils.utils import print_model_metadata, convert_adj_to_edge_index
 from train import train_gat, get_training_args
 
 
@@ -159,7 +159,7 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
     }
 
     # Step 1: Prepare the data
-    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(config, device)
+    node_features, node_labels, topology, train_indices, val_indices, test_indices = load_graph_data(config, device)
 
     # Step 2: Prepare the model
     model_path = os.path.join(BINARIES_PATH, model_name)
@@ -179,53 +179,76 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
 
     with torch.no_grad():
         # Step 3: Run predictions and collect the high dimensional data
-        all_nodes_unnormalized_scores, _ = gat((node_features, edge_index))
+        all_nodes_unnormalized_scores, _ = gat((node_features, topology))
         all_nodes_unnormalized_scores = all_nodes_unnormalized_scores.cpu().numpy()
 
     if visualize_attention:
-        if config['layer_type'] == LayerType.IMP3:
-            total_num_of_nodes = len(node_features)
-            complete_graph = ig.Graph()
-            complete_graph.add_vertices(total_num_of_nodes)
-            edge_index_tuples = list(zip(edge_index[0, :], edge_index[1, :]))
-            complete_graph.add_edges(edge_index_tuples)
-            num_nodes_of_interest = 4
-            head_to_visualize = 3  # todo: do it like for the transformer multiple heads
-            nodes_of_interest = np.argpartition(complete_graph.degree(), -num_nodes_of_interest)[-num_nodes_of_interest:]
-            random_nodes = np.random.randint(low=0, high=total_num_of_nodes-num_nodes_of_interest, size=num_nodes_of_interest)
-            nodes_of_interest = np.append(nodes_of_interest, random_nodes)
-            np.random.shuffle(nodes_of_interest)
-            target_nodes = edge_index[1]
-            source_nodes = edge_index[0]
-            layer_id = 0
+        # number of nodes for which we want to visualize the attention over neighborhood
+        # (2x this actually as we add nodes with highest degree + random nodes)
+        num_nodes_of_interest = 4
+        head_to_visualize = 0  # plot attention from this multi-head attention's head
+        gat_layer_id = 1  # plot attention from this GAT layer
 
-            for target_node_id in nodes_of_interest:
-                src_nodes_indices = torch.eq(target_nodes, target_node_id)
-                source_node_ids = list(source_nodes[src_nodes_indices].cpu().numpy())
-                labels = list(node_labels[source_node_ids].cpu().numpy())
-                attention_layer = gat.gat_net[layer_id].attention_weights.squeeze(dim=-1)
-                attention_weights = attention_layer[src_nodes_indices, head_to_visualize].cpu().numpy()
-                print(f'Max attention weight = {np.max(attention_weights)} and min = {np.min(attention_weights)}')
-                attention_weights /= np.max(attention_weights)
-
-                neighbors_to_igraph_id = dict(zip(source_node_ids, range(len(source_node_ids))))
-
-                ig_graph = ig.Graph()
-                ig_graph.add_vertices(len(source_node_ids))
-                ig_graph.add_edges([(neighbors_to_igraph_id[neighbor], neighbors_to_igraph_id[target_node_id]) for neighbor in source_node_ids])
-
-                # Prepare the visualization settings dictionary
-                visual_style = {}
-                visual_style["edge_width"] = attention_weights  # make edges as thick as the corresponding attention weight
-                # This is the only part that's Cora specific as Cora has 7 labels
-                if dataset_name.lower() == DatasetType.CORA.name.lower():
-                    visual_style["vertex_color"] = [label_to_color_map[label] for label in labels]
-                else:
-                    print('Feel free to add custom color scheme for your specific dataset. Using igraph default coloring.')
-                visual_style["layout"] = ig_graph.layout_reingold_tilford_circular()
-                ig.plot(ig_graph, main="This is my first igraph", **visual_style)
+        if config['layer_type'] == LayerType.IMP3:  # imp 3 works with edge index while others work with adjacency info
+            edge_index = topology
         else:
-            print(f'Attention analysis not yet implemented for layer type = {config["layer_type"]}.')
+            edge_index = convert_adj_to_edge_index(topology)
+
+        # build up the complete graph
+        # node_features shape = (N, FIN), where N number of nodes and FIN number of input features
+        total_num_of_nodes = len(node_features)
+        complete_graph = ig.Graph()
+        complete_graph.add_vertices(total_num_of_nodes)  # igraph creates nodes with ids [0, total_num_of_nodes - 1]
+        edge_index_tuples = list(zip(edge_index[0, :], edge_index[1, :]))
+        complete_graph.add_edges(edge_index_tuples)
+
+        # Pick the target nodes to plot (nodes with highest degree + random nodes)
+        # Note: there could be an overlap between random nodes and nodes with highest degree - but highly unlikely
+        nodes_of_interest_ids = np.argpartition(complete_graph.degree(), -num_nodes_of_interest)[-num_nodes_of_interest:]
+        random_node_ids = np.random.randint(low=0, high=total_num_of_nodes, size=num_nodes_of_interest)
+        nodes_of_interest_ids = np.append(nodes_of_interest_ids, random_node_ids)
+        np.random.shuffle(nodes_of_interest_ids)
+
+        target_nodes = edge_index[1]
+        source_nodes = edge_index[0]
+
+        for target_node_id in nodes_of_interest_ids:
+            # Step 1: Find the neighboring nodes to target node
+            # Note: self edge for CORA is included so the target node is it's own neighbor
+            src_nodes_indices = torch.eq(target_nodes, target_node_id)
+            source_node_ids = source_nodes[src_nodes_indices].cpu().numpy()
+            size_of_neighborhood = len(source_node_ids)
+
+            # Step 2: Fetch their labels
+            labels = node_labels[source_node_ids].cpu().numpy()
+
+            # Step 3: Fetch the attention weights for edges
+            # attention shape = (N, NH, 1) so we just squeeze the last dim it's superfluous
+            attention_layer = gat.gat_net[gat_layer_id].attention_weights.squeeze(dim=-1)
+            attention_weights = attention_layer[src_nodes_indices, head_to_visualize].cpu().numpy()
+            # This part shows that for CORA what GAT learns is pretty much constant attention weights! Like in GCN!
+            print(f'Max attention weight = {np.max(attention_weights)} and min = {np.min(attention_weights)}')
+            attention_weights /= np.max(attention_weights)  # rescale the biggest weight to 1 for nicer plotting
+
+            # Build up the neighborhood graph whose attention we want to visualize
+            # igraph constraint - it works with contiguous range of ids so we map e.g. node 497 to 0, 12 to 1, etc.
+            id_to_igraph_id = dict(zip(source_node_ids, range(len(source_node_ids))))
+            ig_graph = ig.Graph()
+            ig_graph.add_vertices(size_of_neighborhood)
+            ig_graph.add_edges([(id_to_igraph_id[neighbor], id_to_igraph_id[target_node_id]) for neighbor in source_node_ids])
+
+            # Prepare the visualization settings dictionary and plot
+            visual_style = {
+                "edge_width": attention_weights,  # make edges as thick as the corresponding attention weight
+                "layout": ig_graph.layout_reingold_tilford_circular()  # layout for tree-like graphs
+            }
+            # This is the only part that's Cora specific as Cora has 7 labels
+            if dataset_name.lower() == DatasetType.CORA.name.lower():
+                visual_style["vertex_color"] = [label_to_color_map[label] for label in labels]
+            else:
+                print('Add custom color scheme for your specific dataset. Using igraph default coloring.')
+
+            ig.plot(ig_graph, **visual_style)
 
     else:  # visualize embeddings (using t-SNE)
         node_labels = node_labels.cpu().numpy()

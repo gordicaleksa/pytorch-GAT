@@ -4,11 +4,12 @@ import networkx as nx
 import igraph as ig
 
 
+# todo: refactor this file, playground.py, train.py and finally focus on model
 from utils.constants import DatasetType, GraphVisualizationTool, network_repository_cora_url, cora_label_to_color_map
-from utils.utils import convert_adj_to_edge_index, get_num_nodes_from_edge_index
+from utils.utils import convert_adj_to_edge_index
 
 
-def plot_in_out_degree_distributions(edge_index, dataset_name):
+def plot_in_out_degree_distributions(edge_index, num_of_nodes, dataset_name):
     """
         Note: It would be easy to do various kinds of powerful network analysis using igraph/networkx, etc.
         I chose to explicitly calculate only the node degree statistics here, but you can go much further if needed and
@@ -19,7 +20,6 @@ def plot_in_out_degree_distributions(edge_index, dataset_name):
     if edge_index.shape[0] == edge_index.shape[1]:
         edge_index = convert_adj_to_edge_index(edge_index)
 
-    num_of_nodes = get_num_nodes_from_edge_index(edge_index)
     # Store each node's input and output degree (they're the same for undirected graphs such as Cora)
     in_degrees = np.zeros(num_of_nodes, dtype=np.int)
     out_degrees = np.zeros(num_of_nodes, dtype=np.int)
@@ -70,7 +70,7 @@ def visualize_graph(edge_index, node_labels, dataset_name, visualization_tool=Gr
     if edge_index.shape[0] == edge_index.shape[1]:
         edge_index = convert_adj_to_edge_index(edge_index)
 
-    num_of_nodes = get_num_nodes_from_edge_index(edge_index)
+    num_of_nodes = len(node_labels)
     edge_index_tuples = list(zip(edge_index[0, :], edge_index[1, :]))
 
     # Networkx package is primarily used for network analysis, graph visualization was an afterthought in the design

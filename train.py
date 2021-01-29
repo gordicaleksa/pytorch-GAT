@@ -207,7 +207,7 @@ def get_training_args():
         "num_of_layers": 2,  # GNNs, contrary to CNNs, are often shallow (it ultimately depends on the graph properties)
         "num_heads_per_layer": [8, 1],
         "num_features_per_layer": [CORA_NUM_INPUT_FEATURES, 8, CORA_NUM_CLASSES],
-        "layer_type": LayerType.IMP3  # fastest implementation enabled by default
+        "layer_type": LayerType.IMP1  # fastest implementation enabled by default
     }
 
     # Wrapping training configuration into a dictionary

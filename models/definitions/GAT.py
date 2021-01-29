@@ -8,19 +8,33 @@ from utils.constants import LayerType
 # todo: if anybody is willing feel free to submit a PR with imp using torch sparse API
 # todo: 2 main future tasks: inductive setup + torch sparse imp (great learning exp)
 # todo: be explicit about shapes throughout the code
+
 class GAT(torch.nn.Module):
-    def __init__(self, num_of_layers, num_heads_per_layer, num_features_per_layer, dropout=0.6, layer_type=LayerType.IMP3, log_attention_weights=False):
+
+    def __init__(self, num_of_layers, num_heads_per_layer, num_features_per_layer, add_skip_connection=True, bias=True,
+                 dropout=0.6, layer_type=LayerType.IMP3, log_attention_weights=False):
         super().__init__()
 
-        # Short names for readability (much shorter lines)
-        nfpl = num_features_per_layer
-        nhpl = num_heads_per_layer
+        GATLayer = get_layer_type(layer_type)  # fetch one of 3 available implementations
+        num_heads_per_layer = [1] + num_heads_per_layer  # trick - so that I can nicely create GAT layers below
 
-        GATLayer = get_layer_type(layer_type)
+        gat_layers = []  # collect GAT layers
+        for i in range(num_of_layers):
+            layer = GATLayer(
+                num_in_features=num_features_per_layer[i] * num_heads_per_layer[i],  # consequence of concatenation
+                num_out_features=num_features_per_layer[i+1],
+                num_of_heads=num_heads_per_layer[i+1],
+                concat=True if i < num_of_layers - 1 else False,  # last GAT layer does mean avg, the others do concat
+                activation=nn.ELU() if i < num_of_layers - 1 else None,  # last layer just outputs raw scores
+                dropout_prob=dropout,
+                add_skip_connection=add_skip_connection,
+                bias=bias,
+                log_attention_weights=log_attention_weights
+            )
+            gat_layers.append(layer)
 
         self.gat_net = nn.Sequential(
-            *[GATLayer(nfpl[i - 1] * nhpl[i-2], nfpl[i], nhpl[i-1], dropout_prob=dropout, log_attention_weights=log_attention_weights) for i in range(1, num_of_layers)] if num_of_layers >= 2 else nn.Identity(),
-            GATLayer(nfpl[-2] * nhpl[-2], nfpl[-1], nhpl[-1], dropout_prob=dropout, concat=False, activation=None, log_attention_weights=log_attention_weights)
+            *gat_layers,
         )
 
     # data is just a (in_nodes_features, edge_index) tuple, I had to do it like this because of the nn.Sequential:
@@ -29,8 +43,11 @@ class GAT(torch.nn.Module):
         return self.gat_net(data)
 
 
-# todo: nobody should be able to instantiate this one
 class GATLayer(torch.nn.Module):
+    """
+    Base class for all implementations as there is much code that would otherwise be copy/pasted.
+
+    """
 
     def __init__(self, num_in_features, num_out_features, num_of_heads, layer_type, concat=True, activation=nn.ELU(),
                  dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
@@ -121,15 +138,14 @@ class GATLayerImp3(GATLayer):
     """
     Implementation #3 was inspired by PyTorch Geometric: https://github.com/rusty1s/pytorch_geometric
 
-    But, it's faster (since I don't have the message passing framework overhead) and hopefully more readable!
+    But, it's hopefully much more readable! (and of similar performance)
 
     """
 
-    # todo: think this through for inductive setup
     src_nodes_dim = 0  # position of source nodes in edge index
     trg_nodes_dim = 1  # position of target nodes in edge index
-    scatter_dim = 0
-    nodes_dim = 0
+    scatter_dim = 0    # dimension along which the scatters happen
+    nodes_dim = 0      # node dimension
 
     def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
                  dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):

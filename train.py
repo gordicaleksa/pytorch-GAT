@@ -139,6 +139,9 @@ def train_gat(config):
         num_of_layers=config['num_of_layers'],
         num_heads_per_layer=config['num_heads_per_layer'],
         num_features_per_layer=config['num_features_per_layer'],
+        add_skip_connection=config['add_skip_connection'],
+        bias=config['bias'],
+        dropout=config['dropout'],
         layer_type=config['layer_type'],
         log_attention_weights=False  # no need to store attentions, used only in playground.py while visualizing
     ).to(device)
@@ -213,6 +216,9 @@ def get_training_args():
         "num_of_layers": 2,  # GNNs, contrary to CNNs, are often shallow (it ultimately depends on the graph properties)
         "num_heads_per_layer": [8, 1],
         "num_features_per_layer": [CORA_NUM_INPUT_FEATURES, 8, CORA_NUM_CLASSES],
+        "add_skip_connection": True,
+        "bias": True,
+        "dropout": 0.6,
         "layer_type": LayerType.IMP3  # fastest implementation enabled by default
     }
 

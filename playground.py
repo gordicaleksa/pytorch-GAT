@@ -172,6 +172,9 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
         num_of_layers=model_state['num_of_layers'],
         num_heads_per_layer=model_state['num_heads_per_layer'],
         num_features_per_layer=model_state['num_features_per_layer'],
+        add_skip_connection=model_state['add_skip_connection'],
+        bias=model_state['bias'],
+        dropout=model_state['dropout'],
         layer_type=name_to_layer_type(model_state['layer_type']),
         log_attention_weights=True
     ).to(device)

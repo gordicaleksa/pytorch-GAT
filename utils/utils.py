@@ -7,7 +7,6 @@ import numpy as np
 
 
 from utils.constants import BINARIES_PATH, LayerType
-from models.definitions.GAT import GATLayerImp1, GATLayerImp2, GATLayerImp3
 
 
 def convert_adj_to_edge_index(adjacency_matrix):
@@ -58,6 +57,9 @@ def get_training_state(training_config, model):
         "num_of_layers": training_config['num_of_layers'],
         "num_heads_per_layer": training_config['num_heads_per_layer'],
         "num_features_per_layer": training_config['num_features_per_layer'],
+        "add_skip_connection": training_config['add_skip_connection'],
+        "bias": training_config['bias'],
+        "dropout": training_config['dropout'],
         "layer_type": training_config['layer_type'].name,
 
         # Model state

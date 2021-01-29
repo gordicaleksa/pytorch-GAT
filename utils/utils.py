@@ -6,7 +6,7 @@ import git
 import numpy as np
 
 
-from utils.constants import BINARIES_PATH
+from utils.constants import BINARIES_PATH, LayerType
 
 
 def get_num_nodes_from_edge_index(edge_index):
@@ -32,6 +32,17 @@ def convert_adj_to_edge_index(adjacency_matrix):
                 edge_index.append([src_node_id, trg_nod_id])
 
     return np.asarray(edge_index).transpose()  # change shape from (N,2) into (2,N)
+
+
+def name_to_layer_type(name):
+    if name == LayerType.IMP1.name:
+        return LayerType.IMP1
+    elif name == LayerType.IMP2.name:
+        return LayerType.IMP2
+    elif name == LayerType.IMP3.name:
+        return LayerType.IMP3
+    else:
+        raise Exception(f'Name {name} not supported.')
 
 
 def get_training_state(training_config, model):

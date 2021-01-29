@@ -1,5 +1,6 @@
 """
     Contains constants shared across the project.
+
 """
 
 import os
@@ -7,10 +8,12 @@ import enum
 from torch.utils.tensorboard import SummaryWriter
 
 
+# Supported datasets - currently only Cora
 class DatasetType(enum.Enum):
     CORA = 0
 
 
+# Networkx is not precisely made with drawing as it's main feature but I experimented with it a bit
 class GraphVisualizationTool(enum.Enum):
     NETWORKX = 0,
     IGRAPH = 1
@@ -23,21 +26,6 @@ class LayerType(enum.Enum):
     IMP3 = 2
 
 
-def name_to_layer_type(name):
-    if name == LayerType.IMP1.name:
-        return LayerType.IMP1
-    elif name == LayerType.IMP2.name:
-        return LayerType.IMP2
-    elif name == LayerType.IMP3.name:
-        return LayerType.IMP3
-    else:
-        raise Exception(f'Name {name} not supported.')
-
-
-# Used whenever we need to plot points from different class (like t-SNE in playground.py and CORA visualization)
-label_to_color_map = {0: "red", 1: "blue", 2: "green", 3: "orange", 4: "yellow", 5: "pink", 6: "gray"}
-
-
 # 3 different model training/eval phases used in train.py
 class LoopPhase(enum.Enum):
     TRAIN = 0,
@@ -45,12 +33,13 @@ class LoopPhase(enum.Enum):
     TEST = 2
 
 
+writer = SummaryWriter()  # (tensorboard) writer will output to ./runs/ directory by default
+
+
 # Global vars used for early stopping. After some number of epochs (as defined by the patience_period var) without any
 # improvement on the validation dataset (measured via accuracy metric), we'll break out from the training loop.
 BEST_VAL_ACC = 0
 PATIENCE_CNT = 0
-
-writer = SummaryWriter()  # (tensorboard) writer will output to ./runs/ directory by default
 
 
 BINARIES_PATH = os.path.join(os.path.dirname(__file__), os.pardir, 'models', 'binaries')
@@ -75,7 +64,8 @@ CORA_NUM_CLASSES = 7
 
 network_repository_cora_url = r'http://networkrepository.com/graphvis.php?d=./data/gsm50/labeled/cora.edges'
 
-
+# Used whenever we need to plot points from different class (like t-SNE in playground.py and CORA visualization)
+cora_label_to_color_map = {0: "red", 1: "blue", 2: "green", 3: "orange", 4: "yellow", 5: "pink", 6: "gray"}
 
 
 

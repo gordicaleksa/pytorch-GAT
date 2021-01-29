@@ -4,7 +4,7 @@ import networkx as nx
 import igraph as ig
 
 
-from utils.constants import DatasetType, GraphVisualizationTool, network_repository_cora_url, label_to_color_map
+from utils.constants import DatasetType, GraphVisualizationTool, network_repository_cora_url, cora_label_to_color_map
 from utils.utils import convert_adj_to_edge_index, get_num_nodes_from_edge_index
 
 
@@ -112,7 +112,7 @@ def visualize_graph(edge_index, node_labels, dataset_name, visualization_tool=Gr
 
         # This is the only part that's Cora specific as Cora has 7 labels
         if dataset_name.lower() == DatasetType.CORA.name.lower():
-            visual_style["vertex_color"] = [label_to_color_map[label] for label in node_labels]
+            visual_style["vertex_color"] = [cora_label_to_color_map[label] for label in node_labels]
         else:
             print('Feel free to add custom color scheme for your specific dataset. Using igraph default coloring.')
 

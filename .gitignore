@@ -8,3 +8,6 @@ __pycache__
 # Models checkpoints and binaries
 models/checkpoints
 models/binaries
+data/
+
+runs/

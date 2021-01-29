@@ -12,9 +12,9 @@ import igraph as ig
 
 
 from utils.data_loading import normalize_features_sparse, normalize_features_dense, pickle_save, pickle_read, load_graph_data
-from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType, LayerType, DATA_DIR_PATH, name_to_layer_type, label_to_color_map
+from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType, LayerType, DATA_DIR_PATH, cora_label_to_color_map
 from models.definitions.GAT import GAT
-from utils.utils import print_model_metadata, convert_adj_to_edge_index
+from utils.utils import print_model_metadata, convert_adj_to_edge_index, name_to_layer_type
 from train import train_gat, get_training_args
 
 
@@ -59,10 +59,10 @@ def to_GBs(memory_in_bytes):  # beautify memory output - helper function
 
 def profile_gat_implementations(skip_if_profiling_info_cached=False):
     """
-    Currently for 1000 epochs of GAT training the time and memory consumption are  (on my machine - RTX 2080):
-        * implementation 1 (IMP1): time ~ 34 seconds, max memory allocated = 1.5 GB and reserved = 1.54 GB
-        * implementation 2 (IMP2): time = 20 seconds, max memory allocated = 1.4 GB and reserved = 1.54 GB
-        * implementation 3 (IMP3): time = 1.91 seconds, max memory allocated = 0.05 GB and reserved = 1.54 GB
+    Currently for 500 epochs of GAT training the time and memory consumption are  (on my machine - RTX 2080):
+        * implementation 1 (IMP1): time ~ 17 seconds, max memory allocated = 1.5 GB and reserved = 1.55 GB
+        * implementation 2 (IMP2): time = 15.5 seconds, max memory allocated = 1.4 GB and reserved = 1.55 GB
+        * implementation 3 (IMP3): time = 3.5 seconds, max memory allocated = 0.05 GB and reserved = 1.55 GB
 
     """
 
@@ -244,7 +244,7 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
             }
             # This is the only part that's Cora specific as Cora has 7 labels
             if dataset_name.lower() == DatasetType.CORA.name.lower():
-                visual_style["vertex_color"] = [label_to_color_map[label] for label in labels]
+                visual_style["vertex_color"] = [cora_label_to_color_map[label] for label in labels]
             else:
                 print('Add custom color scheme for your specific dataset. Using igraph default coloring.')
 
@@ -267,13 +267,39 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
         for class_id in range(num_classes):
             # We extract the points whose true label equals class_id and we color them in the same way, hopefully
             # they'll be clustered together on the 2D chart - that would mean that GAT learned good representations!
-            plt.scatter(t_sne_embeddings[node_labels == class_id, 0], t_sne_embeddings[node_labels == class_id, 1], s=20, color=label_to_color_map[class_id])
+            plt.scatter(t_sne_embeddings[node_labels == class_id, 0], t_sne_embeddings[node_labels == class_id, 1], s=20, color=cora_label_to_color_map[class_id])
         plt.show()
 
 
+def visualize_graph_dataset(dataset_name):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU
+    config = {
+        'dataset_name': dataset_name,
+        'layer_type': LayerType.IMP3,  # don't care
+        'should_visualize': True  # visualize the dataset
+    }
+    load_graph_data(config, device)
+
+
 if __name__ == '__main__':
+    #
+    # Uncomment the function you want to play with <3
+    #
+
     # shape = (N, F), where N is the number of nodes and F is the number of features
     # node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
-    # profile_different_matrix_formats(node_features_csr)
-    visualize_embedding_space_or_attention()
-    # profile_gat_implementations()
+    # profile_sparse_matrix_formats(node_features_csr)
+
+    # Set to True if you want to use the caching mechanism. Once you compute the profiling info it gets stored
+    # in data/ dir as timing.dict and memory.dict which you can later just load instead of computing again
+    # profile_gat_implementations(skip_if_profiling_info_cached=True)
+
+    # visualize_embedding_space_or_attention(
+    #     model_name=r'gat_000000.pth',
+    #     dataset_name=DatasetType.CORA.name,
+    #     visualize_attention=False  # set to False to visualize the embedding space using t-SNE
+    # )
+
+    # todo: make sure this works
+    visualize_graph_dataset(dataset_name=DatasetType.CORA.name)
+

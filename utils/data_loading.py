@@ -6,7 +6,7 @@
     The feature vectors are 1433 features long. The authors found the most frequent words across every paper
     in the graph (they've removed the low frequency words + some additional processing) and made a vocab from those.
     Now feature "i" in the feature vector tells us whether the paper contains i-th word from the vocab (1-yes, 0-no).
-    e.g. : feature vector 100...00 means that this node/paper has only 0th word of the vocab.
+    e.g. : feature vector 100...00 means that this node/paper contains only the 0th word of the vocab.
 
 
     Note on Cora processing:
@@ -30,7 +30,7 @@
             * https://en.wikipedia.org/wiki/Sparse_matrix
 
         TL;DR:
-        LIL, COO and DOK are used for efficient modification of your sparse structure (add/remove edges)
+        LIL, COO and DOK are used for efficient modification of your sparse structure/graph topology (add/remove edges)
         CSC and CSR are used for efficient arithmetic operations (addition, multiplication, etc.)
         DIA and BSR are used when you're dealing with special types of sparse matrices - diagonal and block matrices.
 
@@ -49,9 +49,6 @@ from utils.constants import *
 from utils.visualizations import plot_in_out_degree_distributions, visualize_graph
 
 
-# todo: after I get GAT working e2e compare across 5 different repos how people handled Cora
-
-
 def load_graph_data(training_config, device):
     dataset_name = training_config['dataset_name'].lower()
     layer_type = training_config['layer_type']
@@ -59,7 +56,7 @@ def load_graph_data(training_config, device):
 
     if dataset_name == DatasetType.CORA.name.lower():
 
-        # shape = (N, F), where N is the number of nodes and F is the number of features
+        # shape = (N, FIN), where N is the number of nodes and FIN is the number of input features
         node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
         # shape = (N, 1)
         node_labels_npy = pickle_read(os.path.join(CORA_PATH, 'node_labels.npy'))
@@ -70,28 +67,32 @@ def load_graph_data(training_config, device):
         node_features_csr = normalize_features_sparse(node_features_csr)
         num_of_nodes = len(node_labels_npy)
 
-        # todo: refactor this once I have imps in place
-        if layer_type == LayerType.IMP2 or layer_type == LayerType.IMP1:  # some implementations rely on adjacency matrix others on edge index
-            connectivity_data = nx.adjacency_matrix(nx.from_dict_of_lists(adjacency_list_dict)).todense().astype(np.float)
-            connectivity_data += np.identity(connectivity_data.shape[0])
-            connectivity_data[connectivity_data == 0] = -np.inf
-            connectivity_data[connectivity_data == 1] = 0
-        elif layer_type == LayerType.IMP3:
-            # Build edge index explicitly (faster than nx ~100 times and as fast as PyGeometric imp, less complicated)
+        if layer_type == LayerType.IMP3:
+            # Build edge index explicitly (faster than nx ~100 times and as fast as PyGeometric imp but less complex)
             # shape = (2, E), where E is the number of edges, and 2 for source and target nodes. Basically edge index
             # contains tuples of the format S->T, e.g. 0->3 means that node with id 0 points to a node with id 3.
-            connectivity_data = build_edge_index(adjacency_list_dict, num_of_nodes, add_self_edges=True)
+            topology = build_edge_index(adjacency_list_dict, num_of_nodes, add_self_edges=True)
+        elif layer_type == LayerType.IMP2 or layer_type == LayerType.IMP1:
+            # adjacency matrix shape = (N, N)
+            topology = nx.adjacency_matrix(nx.from_dict_of_lists(adjacency_list_dict)).todense().astype(np.float)
+            topology += np.identity(topology.shape[0])  # add self connections
+            topology[topology > 0] = 1  # multiple edges not allowed
+            topology[topology == 0] = -np.inf  # make it a mask instead of adjacency matrix (used to mask softmax)
+            topology[topology == 1] = 0
         else:
             raise Exception(f'Layer type {layer_type} not yet supported.')
 
+        # Note: topology is just a fancy way of naming the graph structure data
+        # (be it in the edge index format or adjacency matrix)
+
         if should_visualize:  # network analysis and graph drawing
-            plot_in_out_degree_distributions(connectivity_data, dataset_name)
-            visualize_graph(connectivity_data, node_labels_npy, dataset_name)
+            plot_in_out_degree_distributions(topology, dataset_name)
+            visualize_graph(topology, node_labels_npy, dataset_name)
 
         # Convert to dense PyTorch tensors
 
         # Needs to be long int type because later functions like PyTorch's index_select expect it
-        edge_index = torch.tensor(connectivity_data, dtype=torch.long, device=device)  # todo: long for adj?
+        edge_index = torch.tensor(topology, dtype=torch.long, device=device)  # todo: long for adj?
         node_labels = torch.tensor(node_labels_npy, dtype=torch.long, device=device)  # todo: do I need long? save mem!
         node_features = torch.tensor(node_features_csr.todense(), device=device)
 
@@ -108,9 +109,9 @@ def load_graph_data(training_config, device):
 # All Cora data is stored as pickle
 def pickle_read(path):
     with open(path, 'rb') as file:
-        out = pickle.load(file)
+        data = pickle.load(file)
 
-    return out
+    return data
 
 
 def pickle_save(path, data):
@@ -123,14 +124,20 @@ def normalize_features_sparse(node_features_sparse):
 
     # Instead of dividing (like in normalize_features_dense()) we do multiplication with inverse sum of features.
     # Modern hardware (GPUs, TPUs, ASICs) is optimized for fast matrix multiplications! ^^ (* >> /)
-    node_features_sum = np.array(node_features_sparse.sum(1))  # sum features for every node feature vector
+    # shape = (N, FIN) -> (N, 1), where N number of nodes and FIN number of input features
+    node_features_sum = np.array(node_features_sparse.sum(-1))  # sum features for every node feature vector
+
     # Make an inverse (remember * by 1/x is better (faster) then / by x)
+    # shape = (N, 1) -> (N)
     node_features_inv_sum = np.power(node_features_sum, -1).squeeze()
-    # Again certain sums will be 0 so 1/0 will give us inf so we replace those by 0 which is a neutral element for mul
-    node_features_inv_sum[np.isinf(node_features_inv_sum)] = 0.
-    # squeeze() was there to make dimension go from (N, 1) -> N for sp.diags
+
+    # Again certain sums will be 0 so 1/0 will give us inf so we replace those by 1 which is a neutral element for mul
+    node_features_inv_sum[np.isinf(node_features_inv_sum)] = 1.
+
+    # Create a diagonal matrix whose values on the diagonal come from node_features_inv_sum
     diagonal_inv_features_sum_matrix = sp.diags(node_features_inv_sum)
-    # This thing is fast, we return the normalized features
+
+    # We return the normalized features.
     return diagonal_inv_features_sum_matrix.dot(node_features_sparse)
 
 
@@ -151,9 +158,10 @@ def build_edge_index(adjacency_list_dict, num_of_nodes, add_self_edges=True):
     for src_node, neighboring_nodes in adjacency_list_dict.items():
         for trg_node in neighboring_nodes:
             # if this edge hasn't been seen so far we add it to the edge index (coalescing - removing duplicates)
-            if (src_node, trg_node) not in seen_edges:  # it's easy to explicitly remove self-edges (Cora has none)
+            if (src_node, trg_node) not in seen_edges:  # it'd be easy to explicitly remove self-edges (Cora has none..)
                 source_nodes_ids.append(src_node)
                 target_nodes_ids.append(trg_node)
+
                 seen_edges.add((src_node, trg_node))
 
     if add_self_edges:
@@ -171,17 +179,6 @@ def build_edge_index(adjacency_list_dict, num_of_nodes, add_self_edges=True):
 def build_edge_index_nx(adjacency_list_dict):
     nx_graph = nx.from_dict_of_lists(adjacency_list_dict)
     adj = nx.adjacency_matrix(nx_graph)
-    adj = adj.tocoo()
+    adj = adj.tocoo()  # convert to COO (COOrdinate sparse format)
 
     return np.row_stack((adj.row, adj.col))
-
-
-# For data loading testing purposes feel free to ignore
-if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU
-    config = {
-        'dataset_name': DatasetType.CORA.name,
-        'layer_type': LayerType.IMP3,
-        'should_visualize': False  # don't visualize the dataset
-    }
-    load_graph_data(config, device)

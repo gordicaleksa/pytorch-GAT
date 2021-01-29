@@ -20,37 +20,38 @@ from train import train_gat, get_training_args
 
 def profile_sparse_matrix_formats(node_features_csr):
     """
-        Shows the benefit of using CORRECT sparse formats during processing, results:
-            CSR >> LIL >> dense format, CSR is ~2x faster from LIL and ~8x faster from dense format
+        Shows the benefit of using CORRECT sparse formats during processing. Results:
+            CSR >> LIL >> dense format, CSR is ~2x faster than LIL and ~8x faster than dense format.
 
         Official GAT and GCN implementations used LIL. In this particular case it doesn't matter that much,
-        since it only takes a couple of ms to process Cora, but it's good to be aware of advantages that
+        since it only takes a couple of milliseconds to process Cora, but it's good to be aware of advantages that
         different sparse formats bring to the table.
 
         Note: CSR is the fastest format for the operations used in normalize features out of all scipy sparse formats.
+        Note2: There are more precise timing functions out there but I believe this one is good enough for my purpose.
 
     """
     assert sp.isspmatrix_csr(node_features_csr), f'Expected scipy matrix in CSR format, got {type(node_features_csr)}.'
-    num_loops = 1000
+    num_simulation_iterations = 1000
 
     # You can also use: tocoo(), todok(), tocsc(), todia(), tobsr(), check out data_loading.py's header for more details
     node_features_lil = node_features_csr.tolil()
     node_features_dense = node_features_csr.todense()
 
     ts = time.time()
-    for i in range(num_loops):  # LIL
+    for i in range(num_simulation_iterations):  # LIL
         _ = normalize_features_sparse(node_features_lil)
-    print(f'time elapsed, LIL = {(time.time() - ts) / num_loops}')
+    print(f'time elapsed, LIL = {(time.time() - ts) / num_simulation_iterations}')
 
     ts = time.time()
-    for i in range(num_loops):  # CSR
+    for i in range(num_simulation_iterations):  # CSR
         _ = normalize_features_sparse(node_features_csr)
-    print(f'time elapsed, CSR = {(time.time() - ts) / num_loops}')
+    print(f'time elapsed, CSR = {(time.time() - ts) / num_simulation_iterations}')
 
     ts = time.time()
-    for i in range(num_loops):  # dense
+    for i in range(num_simulation_iterations):  # dense
         _ = normalize_features_dense(node_features_dense)
-    print(f'time elapsed, dense = {(time.time() - ts) / num_loops}')
+    print(f'time elapsed, dense = {(time.time() - ts) / num_simulation_iterations}')
 
 
 def to_GBs(memory_in_bytes):  # beautify memory output - helper function
@@ -72,11 +73,11 @@ def profile_gat_implementations(skip_if_profiling_info_cached=False):
 
     training_config = get_training_args()
     training_config['num_of_epochs'] = 500  # IMP1 and IMP2 take more time so better to drop this one lower
-    training_config['should_test'] = False
-    training_config['should_visualize'] = False
-    training_config['enable_tensorboard'] = False
-    training_config['console_log_freq'] = None
-    training_config['checkpoint_freq'] = None
+    training_config['should_test'] = False  # just measure training and validation loops
+    training_config['should_visualize'] = False  # chart popup would block the simulation
+    training_config['enable_tensorboard'] = False  # no need to include this one
+    training_config['console_log_freq'] = None  # same here
+    training_config['checkpoint_freq'] = None  # and here ^^
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.is_available():
@@ -88,7 +89,7 @@ def profile_gat_implementations(skip_if_profiling_info_cached=False):
     # Check whether we have memory and timing info already stored in data directory
     cache_exists = os.path.exists(mem_profiling_dump_filepath) and os.path.exists(time_profiling_dump_filepath)
 
-    # Small optimization skip the profiling if we have the info stored already and skipping is enabled
+    # Small optimization - skip the profiling if we have the info stored already and skipping is enabled
     if not (cache_exists and skip_if_profiling_info_cached):
 
         gat_layer_implementations = [layer_type for layer_type in LayerType]
@@ -104,29 +105,31 @@ def profile_gat_implementations(skip_if_profiling_info_cached=False):
                 training_config['layer_type'] = gat_layer_imp  # modify the training config so as to use different imp
 
                 ts = time.time()
-                train_gat(training_config)
+                train_gat(training_config)  # train and validation
                 results_time[gat_layer_imp.name].append(time.time()-ts)  # collect timing information
 
-                # These 2 methods basically query this function: torch.cuda.memory_stats() - contains much more detail.
+                # These 2 methods basically query this function: torch.cuda.memory_stats() it contains much more detail.
                 # Here I just care about the peak memory usage i.e. whether you can train GAT on your device.
 
                 # The actual number of GPU bytes needed to store the GPU tensors I use (since the start of the program)
                 max_memory_allocated = torch.cuda.max_memory_allocated(device)
                 # The above + caching GPU memory used by PyTorch's caching allocator (since the start of the program)
                 max_memory_reserved = torch.cuda.max_memory_reserved(device)
+
                 # Reset the peaks so that we get correct results for the next GAT implementation. Otherwise, since the
                 # above methods are measuring the peaks since the start of the program one of the less efficient
                 # (memory-wise) implementations may eclipse the others.
                 torch.cuda.reset_peak_memory_stats(device)
 
-                results_memory[gat_layer_imp.name].append((max_memory_allocated, max_memory_reserved))  # collect mem info
+                results_memory[gat_layer_imp.name].append((max_memory_allocated, max_memory_reserved))  # mem info
 
-        pickle_save(time_profiling_dump_filepath, results_time)
+        pickle_save(time_profiling_dump_filepath, results_time)  # dump into cache files
         pickle_save(mem_profiling_dump_filepath, results_memory)
     else:
         results_time = pickle_read(time_profiling_dump_filepath)
         results_memory = pickle_read(mem_profiling_dump_filepath)
 
+    # Print the results
     for gat_layer_imp in LayerType:
         imp_name = gat_layer_imp.name
         print('*' * 20)
@@ -144,7 +147,7 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
     Check out this one for more intuition on how to tune t-SNE: https://distill.pub/2016/misread-tsne/
 
     If you think it'd be useful for me to implement t-SNE as well and explain how every single detail works
-    open up an issue or DM me on social media!
+    open up an issue or DM me on social media! <3
 
     Note: I also tried using UMAP but it doesn't provide any more insight than t-SNE.
     (con: it has a lot of dependencies if you want to use their plotting functionality)
@@ -175,17 +178,19 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
 
     print_model_metadata(model_state)
     gat.load_state_dict(model_state["state_dict"], strict=True)
-    gat.eval()
+    gat.eval()  # some layers like nn.Dropout behave differently in train vs eval mode so this part is important
 
+    # This context manager is important (and you'll often see it), otherwise PyTorch will eat much more memory.
+    # It would be saving activations for backprop but we are not going to do any model training just the prediction.
     with torch.no_grad():
         # Step 3: Run predictions and collect the high dimensional data
-        all_nodes_unnormalized_scores, _ = gat((node_features, topology))
+        all_nodes_unnormalized_scores, _ = gat((node_features, topology))  # shape = (N, num of classes)
         all_nodes_unnormalized_scores = all_nodes_unnormalized_scores.cpu().numpy()
 
     if visualize_attention:
-        # number of nodes for which we want to visualize the attention over neighborhood
+        # The number of nodes for which we want to visualize their attention over neighboring nodes
         # (2x this actually as we add nodes with highest degree + random nodes)
-        num_nodes_of_interest = 4
+        num_nodes_of_interest = 4  # 4 is an arbitrary number you can play with these numbers
         head_to_visualize = 0  # plot attention from this multi-head attention's head
         gat_layer_id = 1  # plot attention from this GAT layer
 
@@ -194,12 +199,12 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
         else:
             edge_index = convert_adj_to_edge_index(topology)
 
-        # build up the complete graph
-        # node_features shape = (N, FIN), where N number of nodes and FIN number of input features
+        # Build up the complete graph
+        # node_features shape = (N, FIN), where N is the number of nodes and FIN number of input features
         total_num_of_nodes = len(node_features)
         complete_graph = ig.Graph()
         complete_graph.add_vertices(total_num_of_nodes)  # igraph creates nodes with ids [0, total_num_of_nodes - 1]
-        edge_index_tuples = list(zip(edge_index[0, :], edge_index[1, :]))
+        edge_index_tuples = list(zip(edge_index[0, :], edge_index[1, :]))  # igraph requires this format
         complete_graph.add_edges(edge_index_tuples)
 
         # Pick the target nodes to plot (nodes with highest degree + random nodes)
@@ -213,8 +218,8 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
         source_nodes = edge_index[0]
 
         for target_node_id in nodes_of_interest_ids:
-            # Step 1: Find the neighboring nodes to target node
-            # Note: self edge for CORA is included so the target node is it's own neighbor
+            # Step 1: Find the neighboring nodes to the target node
+            # Note: self edge for CORA is included so the target node is it's own neighbor (Alexandro yo soy tu madre)
             src_nodes_indices = torch.eq(target_nodes, target_node_id)
             source_node_ids = source_nodes[src_nodes_indices].cpu().numpy()
             size_of_neighborhood = len(source_node_ids)
@@ -222,7 +227,7 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
             # Step 2: Fetch their labels
             labels = node_labels[source_node_ids].cpu().numpy()
 
-            # Step 3: Fetch the attention weights for edges
+            # Step 3: Fetch the attention weights for edges (attention is logged during GAT's forward pass above)
             # attention shape = (N, NH, 1) so we just squeeze the last dim it's superfluous
             attention_layer = gat.gat_net[gat_layer_id].attention_weights.squeeze(dim=-1)
             attention_weights = attention_layer[src_nodes_indices, head_to_visualize].cpu().numpy()
@@ -266,7 +271,7 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
 
         for class_id in range(num_classes):
             # We extract the points whose true label equals class_id and we color them in the same way, hopefully
-            # they'll be clustered together on the 2D chart - that would mean that GAT learned good representations!
+            # they'll be clustered together on the 2D chart - that would mean that GAT has learned good representations!
             plt.scatter(t_sne_embeddings[node_labels == class_id, 0], t_sne_embeddings[node_labels == class_id, 1], s=20, color=cora_label_to_color_map[class_id])
         plt.show()
 
@@ -294,12 +299,13 @@ if __name__ == '__main__':
     # in data/ dir as timing.dict and memory.dict which you can later just load instead of computing again
     # profile_gat_implementations(skip_if_profiling_info_cached=True)
 
-    # visualize_embedding_space_or_attention(
-    #     model_name=r'gat_000000.pth',
-    #     dataset_name=DatasetType.CORA.name,
-    #     visualize_attention=False  # set to False to visualize the embedding space using t-SNE
-    # )
+    # visualize_graph_dataset(dataset_name=DatasetType.CORA.name)
 
-    # todo: make sure this works
-    visualize_graph_dataset(dataset_name=DatasetType.CORA.name)
+    visualize_embedding_space_or_attention(
+        model_name=r'gat_000000.pth',
+        dataset_name=DatasetType.CORA.name,
+        visualize_attention=False  # set to False to visualize the embedding space using t-SNE
+    )
+
+
 

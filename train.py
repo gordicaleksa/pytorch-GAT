@@ -16,6 +16,9 @@ import utils.utils as utils
 # todo: add jupyter notebook
 # todo: add env and README files
 
+# todo: refactor GAT.py, checkin the best GAT model under gat_000000.pth
+# todo: see why I'm overfitting and why is IMP1 superior over IMP2/3???
+
 
 # Simple decorator function so that I don't have to pass arguments that don't change from epoch to epoch
 def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, node_labels, edge_index, train_indices, val_indices, test_indices, patience_period, time_start):
@@ -26,7 +29,8 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
     val_labels = node_labels.index_select(node_dim, val_indices)
     test_labels = node_labels.index_select(node_dim, test_indices)
 
-    graph_data = (node_features, edge_index)
+    # node_features shape = (N, FIN), edge_index shape = (2, E)
+    graph_data = (node_features, edge_index)  # I pack data into tuples because GAT uses nn.Sequential which requires it
 
     def get_node_indices(phase):
         if phase == LoopPhase.TRAIN:
@@ -57,8 +61,9 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         node_indices = get_node_indices(phase)
         gt_node_labels = get_node_labels(phase)  # gt stands for ground truth
 
+        # Do a forwards pass and extract only the relevant node scores (train/val or test ones)
         # Note: [0] just extracts the node_features part of the data (index 1 contains the edge_index)
-        # shape = (N, C) where N is the number of nodes in the graph and C is the number of classes
+        # shape = (N, C) where N is the number of nodes in the split (train/val/test) and C is the number of classes
         nodes_unnormalized_scores = gat(graph_data)[0].index_select(node_dim, node_indices)
 
         # Example: let's take an output for a single node on Cora - it's a vector of size 7 and it contains unnormalized
@@ -105,7 +110,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
             if config['console_log_freq'] is not None and epoch % config['console_log_freq'] == 0:
                 print(f'GAT training: time elapsed= {(time.time() - time_start):.2f} [s] | epoch={epoch + 1} | val acc={accuracy}')
 
-            # Break logic
+            # The "patience" logic - should we break out from the training loop?
             if accuracy > BEST_VAL_ACC:
                 BEST_VAL_ACC = accuracy  # keep track of the best validation accuracy so far
                 PATIENCE_CNT = 0  # reset the counter every time we encounter new best accuracy
@@ -116,12 +121,11 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
                 raise Exception('Stopping the training, the universe has no more patience for this training.')
 
         else:
-            return accuracy
+            return accuracy  # in the case of test phase we just report back the test accuracy
 
     return main_loop  # return the decorated function
 
 
-# todo: see why I'm overfitting and why is IMP1 superior over IMP2/3???
 def train_gat(config):
     global BEST_VAL_ACC
 
@@ -135,7 +139,8 @@ def train_gat(config):
         num_of_layers=config['num_of_layers'],
         num_heads_per_layer=config['num_heads_per_layer'],
         num_features_per_layer=config['num_features_per_layer'],
-        layer_type=config['layer_type']
+        layer_type=config['layer_type'],
+        log_attention_weights=False  # no need to store attentions, used only in playground.py while visualizing
     ).to(device)
 
     # Step 3: Prepare other training related utilities (loss & optimizer and decorator function)
@@ -157,8 +162,9 @@ def train_gat(config):
         config['patience_period'],
         time.time())
 
+    BEST_VAL_ACC, PATIENCE_CNT = [0, 0]  # reset vars used for early stopping
+
     # Step 4: Start the training procedure
-    BEST_VAL_ACC, PATIENCE_CNT = [0, 0]
     for epoch in range(config['num_of_epochs']):
         # Training loop
         main_loop(phase=LoopPhase.TRAIN, epoch=epoch)
@@ -167,11 +173,11 @@ def train_gat(config):
         with torch.no_grad():
             try:
                 main_loop(phase=LoopPhase.VAL, epoch=epoch)
-            except Exception as e:  # patience has run out exception :O
+            except Exception as e:  # "patience has run out" exception :O
                 print(str(e))
                 break  # break out from the training loop
 
-    # Step 5: potentially test your model
+    # Step 5: Potentially test your model
     # Don't overfit to the test dataset - only when you've fine-tuned your model on the validation dataset should you
     # report your final loss and accuracy on the test dataset. Friends don't let friends overfit to the test data. <3
     if config['should_test']:
@@ -187,17 +193,17 @@ def get_training_args():
 
     # Training related
     parser.add_argument("--num_of_epochs", type=int, help="number of training epochs", default=10000)
-    parser.add_argument("--patience_period", type=int, help="number of epochs with no improvement before terminating", default=1000)
+    parser.add_argument("--patience_period", type=int, help="number of epochs with no improvement on val before terminating", default=1000)
     parser.add_argument("--lr", type=float, help="model learning rate", default=5e-3)
     parser.add_argument("--weight_decay", type=float, help="L2 regularization on model weights", default=5e-4)
-    parser.add_argument("--should_test", action='store_true', help='should test the model on the test dataset?')
+    parser.add_argument("--should_test", action='store_true', help='should test the model on the test dataset? (no by default)')
 
     # Dataset related
     parser.add_argument("--dataset_name", choices=[el.name for el in DatasetType], help='dataset to use for training', default=DatasetType.CORA.name)
     parser.add_argument("--should_visualize", action='store_true', help='should visualize the dataset? (no by default)')
 
     # Logging/debugging/checkpoint related (helps a lot with experimentation)
-    parser.add_argument("--enable_tensorboard", action='store_true', help="enable tensorboard logging")
+    parser.add_argument("--enable_tensorboard", action='store_true', help="enable tensorboard logging (no by default)")
     parser.add_argument("--console_log_freq", type=int, help="log to output console (epoch) freq (None for no logging)", default=100)
     parser.add_argument("--checkpoint_freq", type=int, help="checkpoint model saving (epoch) freq (None for no logging)", default=1000)
     args = parser.parse_args()
@@ -207,7 +213,7 @@ def get_training_args():
         "num_of_layers": 2,  # GNNs, contrary to CNNs, are often shallow (it ultimately depends on the graph properties)
         "num_heads_per_layer": [8, 1],
         "num_features_per_layer": [CORA_NUM_INPUT_FEATURES, 8, CORA_NUM_CLASSES],
-        "layer_type": LayerType.IMP1  # fastest implementation enabled by default
+        "layer_type": LayerType.IMP3  # fastest implementation enabled by default
     }
 
     # Wrapping training configuration into a dictionary
@@ -223,5 +229,6 @@ def get_training_args():
 
 if __name__ == '__main__':
 
-    # Train the graph attention network
+    # Train the graph attention network (GAT)
     train_gat(get_training_args())
+

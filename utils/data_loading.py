@@ -72,8 +72,6 @@ def load_graph_data(training_config, device):
             # shape = (2, E), where E is the number of edges, and 2 for source and target nodes. Basically edge index
             # contains tuples of the format S->T, e.g. 0->3 means that node with id 0 points to a node with id 3.
             topology = build_edge_index(adjacency_list_dict, num_of_nodes, add_self_edges=True)
-            # Needs to be long int type because later functions like PyTorch's index_select expect it
-            topology = torch.tensor(topology, dtype=torch.long, device=device)
         elif layer_type == LayerType.IMP2 or layer_type == LayerType.IMP1:
             # adjacency matrix shape = (N, N)
             topology = nx.adjacency_matrix(nx.from_dict_of_lists(adjacency_list_dict)).todense().astype(np.float)
@@ -81,7 +79,6 @@ def load_graph_data(training_config, device):
             topology[topology > 0] = 1  # multiple edges not allowed
             topology[topology == 0] = -np.inf  # make it a mask instead of adjacency matrix (used to mask softmax)
             topology[topology == 1] = 0
-            topology = torch.tensor(topology, device=device)
         else:
             raise Exception(f'Layer type {layer_type} not yet supported.')
 
@@ -94,6 +91,8 @@ def load_graph_data(training_config, device):
 
         # Convert to dense PyTorch tensors
 
+        # Needs to be long int type (in implementation 3) because later functions like PyTorch's index_select expect it
+        topology = torch.tensor(topology, dtype=torch.long if layer_type == LayerType.IMP3 else torch.float, device=device)
         node_labels = torch.tensor(node_labels_npy, dtype=torch.long, device=device)  # Cross entropy expects a long int
         node_features = torch.tensor(node_features_csr.todense(), device=device)
 

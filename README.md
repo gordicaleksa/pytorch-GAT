@@ -179,11 +179,11 @@ If you want to profile the 3 implementations just uncomment the `profile_gat_imp
 
 There are 2 params you may care about:
 * `store_cache` - set to `True` if you wish to save the memory/time profiling results after you've once run it
-* `skip_if_profiling_info_cached` - set to `True` if you want to pull the profiling info from cache (if previously calculated)
+* `skip_if_profiling_info_cached` - set to `True` if you want to pull the profiling info from cache
 
 The results will get stored in `data/` in `memory.dict` and `timing.dict` dictionaries (pickle).
 
-Note: implementation #3 is by far the most optimized one - you can see the details in the code.
+*Note: implementation #3 is by far the most optimized one - you can see the details in the code.*
 
 ---
 
@@ -198,14 +198,21 @@ Set `visualize_attention` to:
 * `True` if you wish to visualize attention
 * `False` if you wish to visualize the embeddings (via t-SNE)
 
+And you'll get crazy visualizations like this one:
+
+<p align="center">
+<img src="data/readme_pics/attention3.jpg" width="600"/>
+</p>
+
+That's the node with the highest degree in the whole Cora dataset.
+
 Feel free to go through the code and play with plotting attention from different GAT layers, plotting different node
 neighborhoods or attention heads. You can also easily change the number of layers in your GAT although shallow GNNs
 tend to perform the best on `small-world`, `homophilic` graph datasets.
 
-
 --
 
-If you want to visualize Cora just uncomment `visualize_graph_dataset()` and you'll get the results from this README.
+If you want to visualize Cora just uncomment `visualize_graph_dataset()` and you'll get the results [from this README](#cora-visualized).
 
 ## Hardware requirements
 

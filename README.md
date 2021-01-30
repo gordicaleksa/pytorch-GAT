@@ -32,7 +32,7 @@ Here is a schematic of GAT's structure:
 
 ## Cora visualized
 
-You can't start talking about GNNs without mentioning the single most famous graph dataset - the Cora citation network.
+You can't just start talking about GNNs without mentioning the single most famous graph dataset - the **Cora citation network**.
 
 Nodes in Cora represent research papers and the links are, you guessed it, citations between those papers.
 
@@ -43,17 +43,53 @@ I've added a utility for visualizing Cora and doing basic network analysis, here
 </p>
 
 Node size corresponds to it's degree (i.e. the number of in/out going edges). Edge thickness roughly corresponds
-to how "popular" or "connected" that edge is (betweenes similarity is the nerdy term check out the code.)
+to how "popular" or "connected" that edge is (**edge betweennesses** is the nerdy term [check out the code](https://github.com/gordicaleksa/pytorch-GAT/blob/main/utils/visualizations.py#L104).)
 
-And here is the plot showing degree distribution on Cora:
+And here is a plot showing the degree distribution on Cora:
 
 <p align="center">
-<img src="data/readme_pics/cora_degree_statistics.PNG" width="600"/>
+<img src="data/readme_pics/cora_degree_statistics.PNG" width="850"/>
 </p>
+
+In and out degree plots are the same since we're dealing with an undirected graph. 
+
+On the bottom plot (degree distribution) you can see an interesting peak happening in the `[2, 4]` range.
+Tha means that the majority of nodes have a small number of edge but there is 1 node that has 169 edges! (the big green node in the previous plot)
 
 ## Attention visualized
 
+Once we have a fully-trained GAT model we can visualize the attention that certain nodes have learned.
+Nodes use attention to decide how to aggregate their neighborhood, enough talk, let's see it:
+
+<p align="center">
+<img src="data/readme_pics/attention1.jpg" width="600"/>
+</p>
+
+This is one of the Cora nodes that has the most edges (citations). The colors represent the nodes of the same class.
+You can clearly see 2 things from this plot:
+* The graph is [homophilic](https://en.wikipedia.org/wiki/Homophily) meaning similar nodes (nodes with same class) tend to cluster together.
+* Edge thickness is the function of attention and since they are all of the same thickness GAT basically learned to do something similar to GCN!
+
+<p align="center">
+<img src="data/readme_pics/attention2.jpg" width="600"/>
+</p>
+
+Similar rules hold for smaller neighborhoods. Also notice the self edge.
+
 ## Analyzing the embedding space
+
+Ok we've seen attention! What else is there to visualize? Well let's visualize the learned embeddings from GAT's
+last layer. The output of get is a tensor of shape = (2708, 7) where 2708 is the number of nodes in Cora and 7 is
+the number of classes. Once we project those 7-dim vectors into 2D, using t-SNE, we get this:
+
+<p align="center">
+<img src="data/readme_pics/t-sne.PNG" width="600"/>
+</p>
+
+We can see that nodes with same label/class are roughly clustered together. With these representations it's easy
+to train a simple classifier on top that will tell us which class the node belongs to. GAT achieves `~83%` accuracy on test nodes.
+
+Note: I've tried UMAP as well but didn't get nicer results + it has a lot of dependencies if you want to use their plotting util.
 
 ## Setup
 

@@ -3,12 +3,57 @@ This repo contains PyTorch implementation of the original GAT paper (:link: [Vel
 It's aimed at making it **easy to start playing and learning** about GAT and GNNs in general. <br/>
 
 ## Table of Contents
+* [What are graph neural networks and GAT?](#what-are-gnns)
+* [Setup](#setup)
+* [Usage](#usage)
+* [Hardware requirements](#hardware-requirements)
+* [Learning material](#video-learning-material)
+    
+## What are GNNs?
 
-## Analyzing the embedding space
+Graph neural networks are a family of neural networks that are dealing with signals defined over graphs!
+
+Graphs can model many interesting natural phenomena so you'll see them used everywhere from:
+* computational biology - predicting potent antibiotics like halicin
+* computational pharmacology - predicting drug side effects
+* traffic forecasting - used in Google Maps
+* recommendation systems (used at Pintrest, Uber, Twitter, etc.) 
+
+and all the way to particle physics in Large Hedron Collider (LHC).
+
+GAT is a representative of spatial (convolutional) GNNs. Since CNNs had a tremendous success in the field of computer vision,
+researchers decided to generalize it to graphs and here we are! :nerd_face:
+
+Here is a schematic of GAT's structure:
+
+<p align="center">
+<img src="data/readme_pics/GAT_schematic.PNG" width="600"/>
+</p>
 
 ## Cora visualized
 
+You can't start talking about GNNs without mentioning the single most famous graph dataset - the Cora citation network.
+
+Nodes in Cora represent research papers and the links are, you guessed it, citations between those papers.
+
+I've added a utility for visualizing Cora and doing basic network analysis, here is how Cora looks like:
+
+<p align="center">
+<img src="data/readme_pics/cora_graph.PNG" width="700"/>
+</p>
+
+Node size corresponds to it's degree (i.e. the number of in/out going edges). Edge thickness roughly corresponds
+to how "popular" or "connected" that edge is (betweenes similarity is the nerdy term check out the code.)
+
+And here is the plot showing degree distribution on Cora:
+
+<p align="center">
+<img src="data/readme_pics/cora_degree_statistics.PNG" width="600"/>
+</p>
+
 ## Attention visualized
+
+## Analyzing the embedding space
 
 ## Setup
 
@@ -33,7 +78,7 @@ and use the most up-to-date versions of Miniconda and CUDA/cuDNN for your system
 ## Usage
 story on 3 imps
 
-### Evaluating GAT
+### Evaluating and profiling GAT
 profiling info
 
 ### Tracking using Tensorboard
@@ -60,7 +105,7 @@ from environment setup, to graph visualizations, etc.
 
 If you have an idea of how to implement GAT using PyTorch's sparse API please feel free to submit a PR.
 I personally had difficulties with their API, it's in beta, and it's questionable whether it's at all possible
-to make an implementation as efficient as IMP3 using it.
+to make an implementation as efficient as my implementation 3 using it.
 
 ## Video learning material
 

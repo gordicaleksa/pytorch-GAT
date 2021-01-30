@@ -7,6 +7,10 @@ It's aimed at making it **easy to start playing and learning** about GAT and GNN
 * [Visualizations (Cora, attention, embeddings)](#cora-visualized)
 * [Setup](#setup)
 * [Usage](#usage)
+    * [Training GAT](#training-gat)
+    * [Tip for understanding the code](#tip-for-understanding-the-code)
+    * [Profiling GAT](#profiling-gat)
+    * [Visualization tools](#visualization-tools)
 * [Hardware requirements](#hardware-requirements)
 * [Learning material](#video-learning-material)
     
@@ -130,7 +134,7 @@ Just do `pip uninstall pywin32` and then either `pip install pywin32` or `conda 
 
 You just need to link the Python environment you created in the [setup](#setup) section.
 
-### Training
+### Training GAT
 
 Everything needed to train GAT on Cora is already setup. To run it (from console) just call: <br/>
 `python training_script.py`
@@ -160,7 +164,7 @@ and pasting the `http://localhost:6006/` URL into your browser:
 
 Having said that most of the fun actually lies in the `playground.py` script.
 
-### Tip on understanding the code
+### Tip for understanding the code
 
 I've added 3 GAT implementations - some are conceptually easier to understand some are more efficient.
 The most interesting and hardest one to understand is implementation 3.
@@ -211,13 +215,13 @@ If you're wondering about why these look like a circle it's because I've used th
 which is particularly well suited for tree like graphs (since we're visualizing a node and it's neighbors this
 subgraph is effectively a `m-ary` tree).
 
-But you can also use different drawing algorithms like `kamada kawai`, etc.
+But you can also use different drawing algorithms like `kamada kawai` (on the right), etc.
 
 Feel free to go through the code and play with plotting attention from different GAT layers, plotting different node
 neighborhoods or attention heads. You can also easily change the number of layers in your GAT although shallow GNNs
 tend to perform the best on `small-world`, `homophilic` graph datasets.
 
---
+---
 
 If you want to visualize Cora just uncomment `visualize_graph_dataset()` and you'll get the results [from this README](#cora-visualized).
 

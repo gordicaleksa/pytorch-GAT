@@ -14,11 +14,9 @@ import utils.utils as utils
 
 
 # todo: add jupyter notebook
-# todo: add env and README files
 
-# todo: checkin the best GAT model under gat_000000.pth
-# todo: how much am I overfitting
-# todo: why is IMP2 so bad and slow?
+# todo: add README
+# todo: add to readme that train is much harder than val
 
 
 # Simple decorator function so that I don't have to pass arguments that don't change from epoch to epoch
@@ -226,7 +224,7 @@ def get_training_args():
         "add_skip_connection": False,  # hurts perf on Cora
         "bias": True,  # result is not so sensitive to bias
         "dropout": 0.6,  # result is sensitive to dropout
-        "layer_type": LayerType.IMP3  # todo: fastest implementation enabled by default
+        "layer_type": LayerType.IMP3  # fastest implementation enabled by default
     }
 
     # Wrapping training configuration into a dictionary
@@ -244,4 +242,3 @@ if __name__ == '__main__':
 
     # Train the graph attention network (GAT)
     train_gat(get_training_args())
-

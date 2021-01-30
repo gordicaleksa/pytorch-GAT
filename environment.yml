@@ -1,0 +1,19 @@
+name: pytorch-gat
+channels:
+  - defaults
+  - pytorch
+dependencies:
+  - python==3.8.5
+  - pip==20.3.3
+  - pytorch==1.7.0
+  - pip:
+    - matplotlib==3.3.3
+    - GitPython==3.1.2
+    - jupyter==1.0.0
+    - numpy==1.19.2
+    - scipy==1.5.4
+    - scikit-learn==0.24.0
+    - tensorboard==2.2.2
+    - networkx==2.5
+    - python-igraph==0.8.3
+    - pycairo==1.20.0

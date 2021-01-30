@@ -7,7 +7,6 @@ from utils.constants import LayerType
 
 # todo: if anybody is willing feel free to submit a PR with imp using torch sparse API
 # todo: 2 main future tasks: inductive setup + torch sparse imp (great learning exp)
-# todo: potentially reduce number of params in skip_proj from NH*FOUT to FOUT
 
 
 class GAT(torch.nn.Module):
@@ -389,7 +388,7 @@ class GATLayerImp2(GATLayer):
         nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
 
         #
-        # Step 2: Edge attention calculation (using sum instead of bmm + additional reshape - compared to imp1)
+        # Step 2: Edge attention calculation (using sum instead of bmm + additional permute calls - compared to imp1)
         #
 
         # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
@@ -400,7 +399,7 @@ class GATLayerImp2(GATLayer):
 
         # src shape = (NH, N, 1) and trg shape = (NH, 1, N)
         scores_source = scores_source.transpose(0, 1)
-        scores_target = scores_target.reshape(self.num_of_heads, 1, num_of_nodes)
+        scores_target = scores_target.permute(1, 2, 0)
 
         # shape = (NH, N, 1) + (NH, 1, N) -> (NH, N, N) with the magic of automatic broadcast <3
         # In Implementation 3 we are much smarter and don't have to calculate all NxN scores! (only E!)
@@ -417,8 +416,10 @@ class GATLayerImp2(GATLayer):
         # batch matrix multiply, shape = (NH, N, N) * (NH, N, FOUT) -> (NH, N, FOUT)
         out_nodes_features = torch.bmm(all_attention_coefficients, nodes_features_proj.transpose(0, 1))
 
+        # Note: watch out here I made a silly mistake of using reshape instead of permute thinking it will
+        # end up doing the same thing, but it didn't! The acc on Cora didn't go above 52%! (compared to reported ~82%)
         # shape = (N, NH, FOUT)
-        out_nodes_features = out_nodes_features.reshape(num_of_nodes, self.num_of_heads, self.num_out_features)
+        out_nodes_features = out_nodes_features.permute(1, 0, 2)
 
         #
         # Step 4: Residual/skip connections, concat and bias (same as in imp1)

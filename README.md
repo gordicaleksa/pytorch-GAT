@@ -201,8 +201,8 @@ Set `visualize_attention` to:
 And you'll get crazy visualizations like these ones:
 
 <p align="center">
-<img src="data/readme_pics/attention3.jpg" width="425"/>
-<img src="data/readme_pics/kk_layout.jpg" width="425"/>
+<img src="data/readme_pics/attention3.jpg" width="410"/>
+<img src="data/readme_pics/kk_layout.jpg" width="410"/>
 </p>
 
 One the left you can see the node with the highest degree in the whole Cora dataset.

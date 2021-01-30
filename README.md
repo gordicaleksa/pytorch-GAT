@@ -119,7 +119,8 @@ and use the most up-to-date versions of Miniconda and CUDA/cuDNN for your system
 Note: not yet added coming in couple of days :heart:
 
 Just run `jupyter notebook` from you Anaconda console and it will open the session in your default browser. <br/>
-Open `The Annotated Transformer ++.ipynb` and you're ready to play! <br/>
+Open `The Annotated Transformer ++.ipynb` and you're ready to play!
+
 ---
 
 **Note:** if you get `DLL load failed while importing win32api: The specified module could not be found` <br/>
@@ -150,7 +151,10 @@ The script will:
 You can visualize the metrics during the training, by calling `tensorboard --logdir=runs` from your console
 and pasting the `http://localhost:6006/` URL into your browser:
 
-
+<p align="center">
+<img src="data/readme_pics/val_loss.PNG" height="290"/>
+<img src="data/readme_pics/val_acc.PNG" height="290"/>
+</p>
 
 *Note: Cora's train split seems to be much harder than the validation and test splits looking at the loss and accuracy metrics:*
 

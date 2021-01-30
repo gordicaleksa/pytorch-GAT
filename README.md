@@ -4,6 +4,7 @@ It's aimed at making it **easy to start playing and learning** about GAT and GNN
 
 ## Table of Contents
 * [What are graph neural networks and GAT?](#what-are-gnns)
+* [Visualizations (Cora, attention, embeddings)](#cora-visualized)
 * [Setup](#setup)
 * [Usage](#usage)
 * [Hardware requirements](#hardware-requirements)
@@ -22,7 +23,7 @@ Graphs can model many interesting natural phenomena so you'll see them used ever
 and all the way to [particle physics](https://news.fnal.gov/2020/09/the-next-big-thing-the-use-of-graph-neural-networks-to-discover-particles/) in Large Hedron Collider [(LHC)](https://en.wikipedia.org/wiki/Large_Hadron_Collider), [fake news detection](https://arxiv.org/abs/1902.06673) and the list goes on and on!
 
 GAT is a representative of spatial (convolutional) GNNs. Since CNNs had a tremendous success in the field of computer vision,
-researchers decided to generalize it to graphs and here we are! :nerd_face:
+researchers decided to generalize it to graphs and so here we are! :nerd_face:
 
 Here is a schematic of GAT's structure:
 
@@ -36,7 +37,7 @@ You can't just start talking about GNNs without mentioning the single most famou
 
 Nodes in Cora represent research papers and the links are, you guessed it, citations between those papers.
 
-I've added a utility for visualizing Cora and doing basic network analysis, here is how Cora looks like:
+I've added a utility for visualizing Cora and doing basic network analysis. Here is how Cora looks like:
 
 <p align="center">
 <img src="data/readme_pics/cora_graph.PNG" width="700"/>
@@ -54,11 +55,11 @@ And here is a plot showing the degree distribution on Cora:
 In and out degree plots are the same since we're dealing with an undirected graph. 
 
 On the bottom plot (degree distribution) you can see an interesting peak happening in the `[2, 4]` range.
-Tha means that the majority of nodes have a small number of edge but there is 1 node that has 169 edges! (the big green node in the previous plot)
+Tha means that the majority of nodes have a small number of edges but there is 1 node that has 169 edges! (the big green node)
 
 ## Attention visualized
 
-Once we have a fully-trained GAT model we can visualize the attention that certain nodes have learned.
+Once we have a fully-trained GAT model we can visualize the attention that certain "nodes" have learned. <br/>
 Nodes use attention to decide how to aggregate their neighborhood, enough talk, let's see it:
 
 <p align="center">
@@ -80,7 +81,7 @@ Similar rules hold for smaller neighborhoods. Also notice the self edges:
 
 Ok, we've seen attention! What else is there to visualize? Well, let's visualize the learned embeddings from GAT's
 last layer. The output of GAT is a tensor of shape = (2708, 7) where 2708 is the number of nodes in Cora and 7 is
-the number of classes. Once we project those 7-dim vectors into 2D, using t-SNE, we get this:
+the number of classes. Once we project those 7-dim vectors into 2D, using [t-SNE](https://en.wikipedia.org/wiki/T-distributed_stochastic_neighbor_embedding), we get this:
 
 <p align="center">
 <img src="data/readme_pics/t-sne.PNG" width="600"/>

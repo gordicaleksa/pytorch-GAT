@@ -16,7 +16,7 @@ import utils.utils as utils
 # todo: add jupyter notebook
 # todo: add env and README files
 
-# todo: refactor GAT.py, checkin the best GAT model under gat_000000.pth
+# todo: checkin the best GAT model under gat_000000.pth
 # todo: see why I'm overfitting and why is IMP1 superior over IMP2/3???
 
 

@@ -17,7 +17,8 @@ import utils.utils as utils
 # todo: add env and README files
 
 # todo: checkin the best GAT model under gat_000000.pth
-# todo: see why I'm overfitting and why is IMP1 superior over IMP2/3???
+# todo: how much am I overfitting
+# todo: why is IMP2 so bad and slow?
 
 
 # Simple decorator function so that I don't have to pass arguments that don't change from epoch to epoch
@@ -49,7 +50,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
             return test_labels
 
     def main_loop(phase, epoch=0):
-        global BEST_VAL_ACC, PATIENCE_CNT, writer
+        global BEST_VAL_ACC, BEST_VAL_LOSS, PATIENCE_CNT, writer
 
         # Certain modules behave differently depending on whether we're training the model or not.
         # e.g. nn.Dropout - we only want to drop model weights during the training.
@@ -110,9 +111,11 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
             if config['console_log_freq'] is not None and epoch % config['console_log_freq'] == 0:
                 print(f'GAT training: time elapsed= {(time.time() - time_start):.2f} [s] | epoch={epoch + 1} | val acc={accuracy}')
 
-            # The "patience" logic - should we break out from the training loop?
-            if accuracy > BEST_VAL_ACC:
-                BEST_VAL_ACC = accuracy  # keep track of the best validation accuracy so far
+            # The "patience" logic - should we break out from the training loop? If either validation acc keeps going up
+            # or the val loss keeps going down we won't stop
+            if accuracy > BEST_VAL_ACC or loss.item() < BEST_VAL_LOSS:
+                BEST_VAL_ACC = max(accuracy, BEST_VAL_ACC)  # keep track of the best validation accuracy so far
+                BEST_VAL_LOSS = min(loss.item(), BEST_VAL_LOSS)
                 PATIENCE_CNT = 0  # reset the counter every time we encounter new best accuracy
             else:
                 PATIENCE_CNT += 1  # otherwise keep counting
@@ -127,7 +130,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
 
 
 def train_gat(config):
-    global BEST_VAL_ACC
+    global BEST_VAL_ACC, BEST_VAL_LOSS
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
@@ -165,7 +168,7 @@ def train_gat(config):
         config['patience_period'],
         time.time())
 
-    BEST_VAL_ACC, PATIENCE_CNT = [0, 0]  # reset vars used for early stopping
+    BEST_VAL_ACC, BEST_VAL_LOSS, PATIENCE_CNT = [0, 0, 0]  # reset vars used for early stopping
 
     # Step 4: Start the training procedure
     for epoch in range(config['num_of_epochs']):
@@ -216,10 +219,10 @@ def get_training_args():
         "num_of_layers": 2,  # GNNs, contrary to CNNs, are often shallow (it ultimately depends on the graph properties)
         "num_heads_per_layer": [8, 1],
         "num_features_per_layer": [CORA_NUM_INPUT_FEATURES, 8, CORA_NUM_CLASSES],
-        "add_skip_connection": True,
-        "bias": True,
-        "dropout": 0.6,
-        "layer_type": LayerType.IMP3  # fastest implementation enabled by default
+        "add_skip_connection": False,  # hurts perf on Cora
+        "bias": True,  # result is not so sensitive to bias
+        "dropout": 0.6,  # result is sensitive to dropout
+        "layer_type": LayerType.IMP2  # todo: fastest implementation enabled by default
     }
 
     # Wrapping training configuration into a dictionary

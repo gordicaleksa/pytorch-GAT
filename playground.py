@@ -58,7 +58,7 @@ def to_GBs(memory_in_bytes):  # beautify memory output - helper function
     return f'{memory_in_bytes / 2**30:.2f} GBs'
 
 
-def profile_gat_implementations(skip_if_profiling_info_cached=False):
+def profile_gat_implementations(skip_if_profiling_info_cached=False, store_cache=False):
     """
     Currently for 500 epochs of GAT training the time and memory consumption are  (on my machine - RTX 2080):
         * implementation 1 (IMP1): time ~ 17 seconds, max memory allocated = 1.5 GB and reserved = 1.55 GB
@@ -123,8 +123,9 @@ def profile_gat_implementations(skip_if_profiling_info_cached=False):
 
                 results_memory[gat_layer_imp.name].append((max_memory_allocated, max_memory_reserved))  # mem info
 
-        pickle_save(time_profiling_dump_filepath, results_time)  # dump into cache files
-        pickle_save(mem_profiling_dump_filepath, results_memory)
+        if store_cache:
+            pickle_save(time_profiling_dump_filepath, results_time)  # dump into cache files
+            pickle_save(mem_profiling_dump_filepath, results_memory)
     else:
         results_time = pickle_read(time_profiling_dump_filepath)
         results_memory = pickle_read(mem_profiling_dump_filepath)

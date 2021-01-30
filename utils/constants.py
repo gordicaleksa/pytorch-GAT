@@ -39,6 +39,7 @@ writer = SummaryWriter()  # (tensorboard) writer will output to ./runs/ director
 # Global vars used for early stopping. After some number of epochs (as defined by the patience_period var) without any
 # improvement on the validation dataset (measured via accuracy metric), we'll break out from the training loop.
 BEST_VAL_ACC = 0
+BEST_VAL_LOSS = 0
 PATIENCE_CNT = 0
 
 

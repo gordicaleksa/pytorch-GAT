@@ -25,6 +25,7 @@ class GAT(torch.nn.Module):
     def __init__(self, num_of_layers, num_heads_per_layer, num_features_per_layer, add_skip_connection=True, bias=True,
                  dropout=0.6, layer_type=LayerType.IMP3, log_attention_weights=False):
         super().__init__()
+        assert num_of_layers == len(num_heads_per_layer) == len(num_features_per_layer) - 1, f'Enter valid arch params.'
 
         GATLayer = get_layer_type(layer_type)  # fetch one of 3 available implementations
         num_heads_per_layer = [1] + num_heads_per_layer  # trick - so that I can nicely create GAT layers below

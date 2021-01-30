@@ -308,7 +308,7 @@ if __name__ == '__main__':
     visualize_embedding_space_or_attention(
         model_name=r'gat_000000.pth',
         dataset_name=DatasetType.CORA.name,
-        visualize_attention=False  # set to False to visualize the embedding space using t-SNE
+        visualize_attention=True  # set to False to visualize the embedding space using t-SNE
     )
 
 

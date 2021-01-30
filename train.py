@@ -99,6 +99,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
             # Save model checkpoint
             if config['checkpoint_freq'] is not None and (epoch + 1) % config['checkpoint_freq'] == 0:
                 ckpt_model_name = f"gat_ckpt_epoch_{epoch + 1}.pth"
+                config['test_acc'] = -1
                 torch.save(utils.get_training_state(config, gat), os.path.join(CHECKPOINTS_PATH, ckpt_model_name))
 
         elif phase == LoopPhase.VAL:
@@ -188,7 +189,10 @@ def train_gat(config):
     # report your final loss and accuracy on the test dataset. Friends don't let friends overfit to the test data. <3
     if config['should_test']:
         test_acc = main_loop(phase=LoopPhase.TEST)
+        config['test_acc'] = test_acc
         print(f'Test accuracy = {test_acc}')
+    else:
+        config['test_acc'] = -1
 
     # Save the latest GAT in the binaries directory
     torch.save(utils.get_training_state(config, gat), os.path.join(BINARIES_PATH, utils.get_available_binary_name()))
@@ -222,7 +226,7 @@ def get_training_args():
         "add_skip_connection": False,  # hurts perf on Cora
         "bias": True,  # result is not so sensitive to bias
         "dropout": 0.6,  # result is sensitive to dropout
-        "layer_type": LayerType.IMP2  # todo: fastest implementation enabled by default
+        "layer_type": LayerType.IMP3  # todo: fastest implementation enabled by default
     }
 
     # Wrapping training configuration into a dictionary

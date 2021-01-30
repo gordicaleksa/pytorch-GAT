@@ -52,6 +52,7 @@ def get_training_state(training_config, model):
         # Training details
         "dataset_name": training_config['dataset_name'],
         "num_of_epochs": training_config['num_of_epochs'],
+        "test_acc": training_config['test_acc'],
 
         # Model structure
         "num_of_layers": training_config['num_of_layers'],

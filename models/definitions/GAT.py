@@ -143,11 +143,15 @@ class GATLayerImp3(GATLayer):
 
     But, it's hopefully much more readable! (and of similar performance)
 
+    If you're still having problems understanding this one DM me and I'll try to create an accompanying blog or video
+    going through this code.
+
     """
 
     src_nodes_dim = 0  # position of source nodes in edge index
     trg_nodes_dim = 1  # position of target nodes in edge index
-    scatter_dim = 0    # dimension along which the scatters happen
+
+    # these may change in the inductive setting - leaving it like this for now (not future proof)
     nodes_dim = 0      # node dimension
     head_dim = 1       # attention head dim
 
@@ -159,8 +163,13 @@ class GATLayerImp3(GATLayer):
                       add_skip_connection, bias, log_attention_weights)
 
     def forward(self, data):
+        #
+        # Step 1: Linear Projection + regularization
+        #
+
         in_nodes_features, edge_index = data  # unpack data
         num_of_nodes = in_nodes_features.shape[self.nodes_dim]
+        assert edge_index.shape[0] == 2, f'Expected edge index with shape=(2,E) got {edge_index.shape}'
 
         # shape = (N, FIN) where N - number of nodes in the graph, FIN - number of input features per node
         # We apply the dropout to all of the input node features (as mentioned in the paper)
@@ -173,13 +182,19 @@ class GATLayerImp3(GATLayer):
 
         nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
 
+        #
+        # Step 2: Edge attention calculation
+        #
+
         # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
         # shape = (N, NH, FOUT) * (1, NH, FOUT) -> (N, NH, 1) -> (N, NH) because sum squeezes the last dimension
         # Optimization note: torch.sum() is as performant as .sum() in my experiments
         scores_source = (nodes_features_proj * self.scoring_fn_source).sum(dim=-1)
         scores_target = (nodes_features_proj * self.scoring_fn_target).sum(dim=-1)
 
-        # We simply copy (lift) the scores for source/target nodes based on the edge index
+        # We simply copy (lift) the scores for source/target nodes based on the edge index. Instead of preparing all
+        # the possible combinations of scores we just prepare those that will actually be used and those are defined
+        # by the edge index.
         # scores shape = (E, NH), nodes_features_proj_lifted shape = (E, NH, FOUT), E - number of edges in the graph
         scores_source_lifted, scores_target_lifted, nodes_features_proj_lifted = self.lift(scores_source, scores_target, nodes_features_proj, edge_index)
         scores_per_edge = self.leakyReLU(scores_source_lifted + scores_target_lifted)
@@ -189,13 +204,21 @@ class GATLayerImp3(GATLayer):
         # Add stochasticity to neighborhood aggregation
         attentions_per_edge = self.dropout(attentions_per_edge)
 
+        #
+        # Step 3: Neighborhood aggregation
+        #
+
         # Element-wise (aka Hadamard) product. Operator * does the same thing as torch.mul
         # shape = (E, NH, FOUT) * (E, NH, 1) -> (E, NH, FOUT), 1 gets broadcast into FOUT
         nodes_features_proj_lifted_weighted = nodes_features_proj_lifted * attentions_per_edge
 
         # This part sums up weighted and projected neighborhood feature vectors for every target node
         # shape = (N, NH, FOUT)
-        out_nodes_features = self.sum_neighbors(nodes_features_proj_lifted_weighted, edge_index, num_of_nodes)
+        out_nodes_features = self.aggregate_neighbors(nodes_features_proj_lifted_weighted, edge_index, in_nodes_features, num_of_nodes)
+
+        #
+        # Step 4: Residual/skip connections, concat and bias
+        #
 
         if self.log_attention_weights:  # potentially log for later visualization in playground.py
             self.attention_weights = attentions_per_edge
@@ -224,8 +247,70 @@ class GATLayerImp3(GATLayer):
         return (out_nodes_features, edge_index)
 
     #
-    # Helper functions
+    # Helper functions (without comments there is very little code so don't be scared!)
     #
+
+    def neighborhood_aware_softmax(self, scores_per_edge, trg_index, num_of_nodes):
+        """
+        As the fn name suggest it does softmax over the neighborhoods. Example: say we have 5 nodes in a graph.
+        Two of them 1, 2 are connected to node 3. If we want to calculate the representation for node 3 we should take
+        into account feature vectors of 1, 2 and 3 itself. Since we have scores for edges 1-3, 2-3 and 3-3
+        in scores_per_edge variable, this function will calculate attention scores like this: 1-3/(1-3+2-3+3-3)
+        (where 1-3 is overloaded notation it represents the edge 1-3 and it's (exp) score) and similarly for 2-3 and 3-3
+         i.e. for this neighborhood we don't care about other edge scores that include nodes 4 and 5.
+
+        Note:
+        Subtracting the max value from logits doesn't change the end result but it improves the numerical stability
+        and it's a fairly common "trick" used in pretty much every deep learning framework.
+        Check out this link for more details:
+
+        https://stats.stackexchange.com/questions/338285/how-does-the-subtraction-of-the-logit-maximum-improve-learning
+
+        """
+        # Calculate the numerator. Make logits <= 0 so that e^logit <= 1 (this will improve the numerical stability)
+        scores_per_edge = scores_per_edge - scores_per_edge.max()
+        exp_scores_per_edge = scores_per_edge.exp()  # softmax
+
+        # Calculate the denominator. shape = (E, NH)
+        neigborhood_aware_denominator = self.sum_edge_scores_neighborhood_aware(exp_scores_per_edge, trg_index, num_of_nodes)
+
+        # 1e-16 is theoretically not needed but is only there for numerical stability (avoid div by 0) - due to the
+        # possibility of the computer rounding a very small number all the way to 0.
+        attentions_per_edge = exp_scores_per_edge / (neigborhood_aware_denominator + 1e-16)
+
+        # shape = (E, NH) -> (E, NH, 1) so that we can do element-wise multiplication with projected node features
+        return attentions_per_edge.unsqueeze(-1)
+
+    def sum_edge_scores_neighborhood_aware(self, exp_scores_per_edge, trg_index, num_of_nodes):
+        # The shape must be the same as in exp_scores_per_edge (required by scatter_add_) i.e. from E -> (E, NH)
+        trg_index_broadcasted = self.explicit_broadcast(trg_index, exp_scores_per_edge)
+
+        # shape = (N, NH), where N is the number of nodes and NH the number of attention heads
+        size = list(exp_scores_per_edge.shape)  # convert to list otherwise assignment is not possible
+        size[self.nodes_dim] = num_of_nodes
+        neighborhood_sums = torch.zeros(size, dtype=exp_scores_per_edge.dtype, device=exp_scores_per_edge.device)
+
+        # position i will contain a sum of exp scores of all the nodes that point to the node i (as dictated by the
+        # target index)
+        neighborhood_sums.scatter_add_(self.nodes_dim, trg_index_broadcasted, exp_scores_per_edge)
+
+        # Expand again so that we can use it as a softmax denominator. e.g. node i's sum will be copied to
+        # all the locations where the source nodes pointed to i (as dictated by the target index)
+        # shape = (N, NH) -> (E, NH)
+        return neighborhood_sums.index_select(self.nodes_dim, trg_index)
+
+    def aggregate_neighbors(self, nodes_features_proj_lifted_weighted, edge_index, in_nodes_features, num_of_nodes):
+        size = list(nodes_features_proj_lifted_weighted.shape)  # convert to list otherwise assignment is not possible
+        size[self.nodes_dim] = num_of_nodes  # shape = (N, NH, FOUT)
+        out_nodes_features = torch.zeros(size, dtype=in_nodes_features.dtype, device=in_nodes_features.device)
+
+        # shape = (E) -> (E, NH, FOUT)
+        trg_index_broadcasted = self.explicit_broadcast(edge_index[self.trg_nodes_dim], nodes_features_proj_lifted_weighted)
+        # aggregation step - we accumulate projected, weighted node features for all the attention heads
+        # shape = (E, NH, FOUT) -> (N, NH, FOUT)
+        out_nodes_features.scatter_add_(self.nodes_dim, trg_index_broadcasted, nodes_features_proj_lifted_weighted)
+
+        return out_nodes_features
 
     def lift(self, scores_source, scores_target, nodes_features_matrix_proj, edge_index):
         """
@@ -243,7 +328,7 @@ class GATLayerImp3(GATLayer):
 
         return scores_source, scores_target, nodes_features_matrix_proj_lifted
 
-    def broadcast(self, this, other):
+    def explicit_broadcast(self, this, other):
         # Append singleton dimensions until this.dim() == other.dim()
         for _ in range(this.dim(), other.dim()):
             this = this.unsqueeze(-1)
@@ -251,67 +336,12 @@ class GATLayerImp3(GATLayer):
         # Explicitly expand so that shapes are the same
         return this.expand_as(other)
 
-    def neighborhood_aware_softmax(self, scores_per_edge, trg_index, num_of_nodes):
-        """
-        As the fn name suggest it does softmax over the neighborhoods. Example: say we have 5 nodes in a graph.
-        Two of them 1, 2 are connected to node 3. If we want to calculate the representation for node 3 we should take
-        into account feature vectors of 1, 2 and 3 itself. Since we have scores for edges 1-3, 2-3 and 3-3
-        in scores_per_edge variable, this function will calculate attention scores like this: 1-3/(1-3+2-3+3-3)
-        (where 1-3 is overloaded notation it represents the edge 1-3 and it's (exp) score) and similarly for 2-3 and 3-3
-         i.e. we don't care about other edge scores that include nodes 4 and 5.
 
-        Note:
-        Subtracting the max value from logits doesn't change the end result but it improves the numerical stability
-        and it's a fairly common "trick" used in pretty much every deep learning framework.
-        Check out this link for more details:
-
-        https://stats.stackexchange.com/questions/338285/how-does-the-subtraction-of-the-logit-maximum-improve-learning
-
-        """
-        # Make logits <= 0 so that e^logit <= 1 (this will improve the numerical stability)
-        scores_per_edge = scores_per_edge - scores_per_edge.max()
-        exp_scores_per_edge = scores_per_edge.exp()  # softmax
-        # shape = (E, NH)
-        neigborhood_aware_denominator = self.sum_edge_scores_neighborhood_aware(exp_scores_per_edge, trg_index, num_of_nodes)
-
-        # The only case where the value could be 0 (and thus we'd need 1e-16) is if some target node had no edge
-        # pointing to it.
-        attentions_per_edge = exp_scores_per_edge / (neigborhood_aware_denominator + 1e-16)
-        return attentions_per_edge.unsqueeze(-1)  # so that we can do element-wise multiplication with proj features
-
-    def sum_edge_scores_neighborhood_aware(self, exp_scores_per_edge, trg_index, num_of_nodes):
-        # The shape must be the same as in exp_scores_per_edge (required by scatter_add_) i.e. from N -> (N, NH)
-        trg_index_broadcasted = self.broadcast(trg_index, exp_scores_per_edge)
-
-        # shape = (N, NH), where N is the number of nodes and NH the number of attention heads
-        size = list(exp_scores_per_edge.shape)  # convert to list otherwise assignment is not possible
-        size[self.scatter_dim] = num_of_nodes
-        neighborhood_sums = torch.zeros(size, dtype=exp_scores_per_edge.dtype, device=exp_scores_per_edge.device)
-
-        # position i will contain a sum of exp scores of all the nodes that point to the node i (as dictated by the
-        # target index)
-        neighborhood_sums.scatter_add_(self.scatter_dim, trg_index_broadcasted, exp_scores_per_edge)
-
-        # Expand again so that we can use it as a softmax denominator. e.g. node i's sum will be copied to
-        # all the locations where the source nodes pointed to i (as dictated by the target index)
-        return neighborhood_sums.index_select(self.nodes_dim, trg_index)
-
-    def sum_neighbors(self, nodes_features_proj_lifted_weighted, edge_index, num_of_nodes):
-        size = list(nodes_features_proj_lifted_weighted.shape)  # convert to list otherwise assignment is not possible
-        size[self.scatter_dim] = num_of_nodes  # shape = (N, NH, FOUT)
-        out_nodes_features = torch.zeros(size, dtype=in_nodes_features.dtype, device=in_nodes_features.device)
-        trg_index_broadcasted = self.broadcast(edge_index[self.trg_nodes_dim], nodes_features_proj_lifted_weighted)
-        out_nodes_features.scatter_add_(self.scatter_dim, trg_index_broadcasted, nodes_features_proj_lifted_weighted)
-
-        return out_nodes_features
-
-
-# todo: the idea for the imp 2 or 1 was to use torch sparse (maybe add 4th imp lol)
 class GATLayerImp2(GATLayer):
     """
         Implementation #2 was inspired by the official GAT implementation: https://github.com/PetarV-/GAT
 
-        It's conceptually simpler but computationally much less efficient.
+        It's conceptually simpler than implementation #3 but computationally much less efficient.
 
         Note: this is the naive implementation not the sparse one.
 
@@ -324,12 +354,16 @@ class GATLayerImp2(GATLayer):
                          add_skip_connection, bias, log_attention_weights)
 
     def forward(self, data):
+        #
+        # Step 1: Linear Projection + regularization
+        #
+
         in_nodes_features, connectivity_mask = data  # unpack data
         num_of_nodes = in_nodes_features.shape[0]
         assert connectivity_mask.shape == (num_of_nodes, num_of_nodes), \
             f'Expected connectivity matrix with shape=({num_of_nodes},{num_of_nodes}), got shape={connectivity_mask.shape}.'
 
-        # shape = (N, FIN) where N - number of nodes in the graph, FIN number of input features per node
+        # shape = (N, FIN) where N - number of nodes in the graph, FIN - number of input features per node
         # We apply the dropout to all of the input node features (as mentioned in the paper)
         in_nodes_features = self.dropout(in_nodes_features)
 
@@ -339,33 +373,62 @@ class GATLayerImp2(GATLayer):
 
         nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
 
+        #
+        # Step 2: Edge attention calculation
+        #
+
         # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
-        # shape = (N, NH, 1)
+        # shape = (N, NH, FOUT) * (1, NH, FOUT) -> (N, NH, 1)
+        # Optimization note: torch.sum() is as performant as .sum() in my experiments
         scores_source = torch.sum((nodes_features_proj * self.scoring_fn_source), dim=-1, keepdim=True)
         scores_target = torch.sum((nodes_features_proj * self.scoring_fn_target), dim=-1, keepdim=True)
 
         # src shape = (NH, N, 1) and trg shape = (NH, 1, N)
         scores_source = scores_source.transpose(0, 1)
-        scores_target = scores_target.reshape(self.num_of_heads, 1, num_of_nodes)  # todo: profile?
+        scores_target = scores_target.reshape(self.num_of_heads, 1, num_of_nodes)
 
         # shape = (NH, N, N) = (NH, N, 1) + (NH, 1, N) + the magic of automatic broadcast <3
-        # all because in Imp3 we are much smarter and don't have to calculate all i.e. NxN scores! (only E!)
+        # In Implementation 3 we are much smarter and don't have to calculate all NxN scores! (only E!)
+        # Tip: it's conceptually easier to understand what happens here if you delete the NH dimension
         all_scores = self.leakyReLU(scores_source + scores_target)
+        # connectivity mask will put -inf on all locations where there are no edges, after applying the softmax
+        # this will result in attention scores being computed only for existing edges
         all_attention_coefficients = self.softmax(all_scores + connectivity_mask)
 
-        # shape = (NH, N, N) * (NH, N, FOUT) = (NH, N, FOUT)  # todo: profile
+        #
+        # Step 3: Neighborhood aggregation
+        #
+
+        # batch matrix multiply, shape = (NH, N, N) * (NH, N, FOUT) -> (NH, N, FOUT)
         out_nodes_features = torch.bmm(all_attention_coefficients, nodes_features_proj.transpose(0, 1))
 
-        # shape = (N, NH, FOUT) # todo: profile?
+        # shape = (N, NH, FOUT)
         out_nodes_features = out_nodes_features.reshape(num_of_nodes, self.num_of_heads, self.num_out_features)
 
-        if self.log_attention_weights:
+        #
+        # Step 4: Residual/skip connections, concat and bias
+        #
+
+        if self.log_attention_weights:  # potentially log for later visualization in playground.py
             self.attention_weights = all_attention_coefficients
 
+        if self.add_skip_connection:  # add skip or residual connection
+            if out_nodes_features.shape[-1] == in_nodes_features.shape[-1]:  # if FIN == FOUT
+                # unsqueeze does this: (N, FIN) -> (N, 1, FIN), out features are (N, NH, FOUT) so 1 gets broadcast to NH
+                # thus we're basically copying input vectors NH times and adding to processed vectors
+                out_nodes_features += in_nodes_features.unsqueeze(1)
+            else:
+                # FIN != FOUT so we need to project input feature vectors into dimension that can be added to output
+                # feature vectors. skip_proj adds lots of additional capacity which may cause overfitting.
+                out_nodes_features += self.skip_proj(in_nodes_features).view(-1, self.num_of_heads,
+                                                                             self.num_out_features)
+
         if self.concat:
+            # shape = (N, NH, FOUT) -> (N, NH*FOUT)
             out_nodes_features = out_nodes_features.view(-1, self.num_of_heads * self.num_out_features)
         else:
-            out_nodes_features = out_nodes_features.mean(dim=1)
+            # shape = (N, NH, FOUT) -> (N, FOUT)
+            out_nodes_features = out_nodes_features.mean(dim=self.head_dim)
 
         if self.bias is not None:
             out_nodes_features += self.bias
@@ -374,7 +437,6 @@ class GATLayerImp2(GATLayer):
         return (out_nodes_features, connectivity_mask)
 
 
-# Other
 class GATLayerImp1(GATLayer):
     def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
                  dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):

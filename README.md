@@ -198,13 +198,20 @@ Set `visualize_attention` to:
 * `True` if you wish to visualize attention
 * `False` if you wish to visualize the embeddings (via t-SNE)
 
-And you'll get crazy visualizations like this one:
+And you'll get crazy visualizations like these ones:
 
 <p align="center">
-<img src="data/readme_pics/attention3.jpg" width="600"/>
+<img src="data/readme_pics/attention3.jpg" width="425"/>
+<img src="data/readme_pics/kk_layout.jpg" width="425"/>
 </p>
 
-That's the node with the highest degree in the whole Cora dataset.
+One the left you can see the node with the highest degree in the whole Cora dataset.
+
+If you're wondering about why these look like a circle it's because I've used the `layout_reingold_tilford_circular` layout 
+which is particularly well suited for tree like graphs (since we're visualizing a node and it's neighbors this
+subgraph is effectively a `m-ary` tree).
+
+But you can also use different drawing algorithms like `kamada kawai`, etc.
 
 Feel free to go through the code and play with plotting attention from different GAT layers, plotting different node
 neighborhoods or attention heads. You can also easily change the number of layers in your GAT although shallow GNNs

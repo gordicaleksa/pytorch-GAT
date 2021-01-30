@@ -15,7 +15,7 @@ from utils.data_loading import normalize_features_sparse, normalize_features_den
 from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType, LayerType, DATA_DIR_PATH, cora_label_to_color_map
 from models.definitions.GAT import GAT
 from utils.utils import print_model_metadata, convert_adj_to_edge_index, name_to_layer_type
-from train import train_gat, get_training_args
+from training_script import train_gat, get_training_args
 
 
 def profile_sparse_matrix_formats(node_features_csr):
@@ -276,7 +276,7 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
         for class_id in range(num_classes):
             # We extract the points whose true label equals class_id and we color them in the same way, hopefully
             # they'll be clustered together on the 2D chart - that would mean that GAT has learned good representations!
-            plt.scatter(t_sne_embeddings[node_labels == class_id, 0], t_sne_embeddings[node_labels == class_id, 1], s=20, color=cora_label_to_color_map[class_id])
+            plt.scatter(t_sne_embeddings[node_labels == class_id, 0], t_sne_embeddings[node_labels == class_id, 1], s=20, color=cora_label_to_color_map[class_id], edgecolors='black', linewidths=0.2)
         plt.show()
 
 
@@ -308,7 +308,7 @@ if __name__ == '__main__':
     visualize_embedding_space_or_attention(
         model_name=r'gat_000000.pth',
         dataset_name=DatasetType.CORA.name,
-        visualize_attention=True  # set to False to visualize the embedding space using t-SNE
+        visualize_attention=False  # set to False to visualize the embedding space using t-SNE
     )
 
 

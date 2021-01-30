@@ -13,12 +13,6 @@ from utils.constants import *
 import utils.utils as utils
 
 
-# todo: add jupyter notebook
-
-# todo: add README
-# todo: add to readme that train is much harder than val
-
-
 # Simple decorator function so that I don't have to pass arguments that don't change from epoch to epoch
 def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, node_labels, edge_index, train_indices, val_indices, test_indices, patience_period, time_start):
 

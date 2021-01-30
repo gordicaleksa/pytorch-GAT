@@ -5,10 +5,6 @@ import torch.nn as nn
 from utils.constants import LayerType
 
 
-# todo: if anybody is willing feel free to submit a PR with imp using torch sparse API
-# todo: 2 main future tasks: inductive setup + torch sparse imp (great learning exp)
-
-
 class GAT(torch.nn.Module):
     """
     I've added 3 GAT implementations - some are conceptually easier to understand some are more efficient.

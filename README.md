@@ -113,13 +113,95 @@ Follow through points 1 and 2 of [this setup](https://github.com/Petlja/PSIML/bl
 and use the most up-to-date versions of Miniconda and CUDA/cuDNN for your system.
 
 ## Usage
-story on 3 imps
 
-### Evaluating and profiling GAT
-profiling info
-GAT achieves `~83%` accuracy on test nodes.
+#### Option 1: Jupyter Notebook
 
-### Tracking using Tensorboard
+Note: not yet added coming in couple of days :heart:
+
+Just run `jupyter notebook` from you Anaconda console and it will open the session in your default browser. <br/>
+Open `The Annotated Transformer ++.ipynb` and you're ready to play! <br/>
+---
+
+**Note:** if you get `DLL load failed while importing win32api: The specified module could not be found` <br/>
+Just do `pip uninstall pywin32` and then either `pip install pywin32` or `conda install pywin32` [should fix it](https://github.com/jupyter/notebook/issues/4980)!
+
+#### Option 2: Use your IDE of choice
+
+You just need to link the Python environment you created in the [setup](#setup) section.
+
+### Training
+
+Everything needed to train GAT on Cora is already setup. To run it (from console) just call: <br/>
+`python training_script.py`
+
+You could also potentially:
+* add the `--should_visualize` - to visualize your graph data
+* add the `--should_test` - to evaluate GAT on the test portion of the data
+* add the `--enable_tensorboard` - to start saving metrics (accuracy, loss)
+
+The code is well commented so you can (hopefully) understand how the training itself works. <br/>
+
+The script will:
+* Dump checkpoint *.pth models into `models/checkpoints/`
+* Dump the final *.pth model into `models/binaries/`
+* Save metrics into `runs/`, just run `tensorboard --logdir=runs` from your Anaconda to visualize it
+* Periodically write some training metadata to the console
+
+You can visualize the metrics during the training, by calling `tensorboard --logdir=runs` from your console
+and pasting the `http://localhost:6006/` URL into your browser:
+
+
+
+*Note: Cora's train split seems to be much harder than the validation and test splits looking at the loss and accuracy metrics:*
+
+Having said that most of the fun actually lies in the `playground.py` script.
+
+### Tip on understanding the code
+
+I've added 3 GAT implementations - some are conceptually easier to understand some are more efficient.
+The most interesting and hardest one to understand is implementation 3.
+Implementation 1 and implementation 3 differ in subtle details but basically do the same thing.
+
+All implementations achieve the official GAT's result on Cora -> `82-83%` accuracy on test nodes.
+
+**Advice on how to approach the code:**
+* Understand the implementation #2 first
+* Check out the differences it has compared to implementation #1
+* Finally, tackle the implementation #3
+
+### Profiling GAT
+
+If you want to profile the 3 implementations just uncomment the `profile_gat_implementations()` function in `playground.py`.
+
+There are 2 params you may care about:
+* `store_cache` - set to `True` if you wish to save the memory/time profiling results after you've once run it
+* `skip_if_profiling_info_cached` - set to `True` if you want to pull the profiling info from cache (if previously calculated)
+
+The results will get stored in `data/` in `memory.dict` and `timing.dict` dictionaries (pickle).
+
+Note: implementation #3 is by far the most optimized one - you can see the details in the code.
+
+---
+
+I've also added `profile_sparse_matrix_formats` if you want to get some familiarity with different matrix sparse formats
+like `COO`, `CSR`, `CSC`, `LIL`, etc.
+
+### Visualization tools
+
+If you want to visualize t-SNE embeddings or the attention just uncomment the `visualize_embedding_space_or_attention()` function.
+
+Set `visualize_attention` to:
+* `True` if you wish to visualize attention
+* `False` if you wish to visualize the embeddings (via t-SNE)
+
+Feel free to go through the code and play with plotting attention from different GAT layers, plotting different node
+neighborhoods or attention heads. You can also easily change the number of layers in your GAT although shallow GNNs
+tend to perform the best on `small-world`, `homophilic` graph datasets.
+
+
+--
+
+If you want to visualize Cora just uncomment `visualize_graph_dataset()` and you'll get the results from this README.
 
 ## Hardware requirements
 

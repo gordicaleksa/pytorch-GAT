@@ -14,12 +14,12 @@ It's aimed at making it **easy to start playing and learning** about GAT and GNN
 Graph neural networks are a family of neural networks that are dealing with signals defined over graphs!
 
 Graphs can model many interesting natural phenomena so you'll see them used everywhere from:
-* computational biology - predicting potent antibiotics like halicin
-* computational pharmacology - predicting drug side effects
-* traffic forecasting - used in Google Maps
-* recommendation systems (used at Pintrest, Uber, Twitter, etc.) 
+* Computational biology - predicting potent [antibiotics like halicin](https://www.nature.com/articles/d41586-020-00018-3)
+* Computational pharmacology - predicting [drug side effects](https://arxiv.org/abs/1802.00543)
+* Traffic forecasting - e.g. it's used in [Google Maps](https://deepmind.com/blog/article/traffic-prediction-with-advanced-graph-neural-networks)
+* Recommendation systems (used at [Pintrest](https://medium.com/pinterest-engineering/pinsage-a-new-graph-convolutional-neural-network-for-web-scale-recommender-systems-88795a107f48), [Uber](https://eng.uber.com/uber-eats-graph-learning/), [Twitter](https://towardsdatascience.com/temporal-graph-networks-ab8f327f2efe), etc.) 
 
-and all the way to particle physics in Large Hedron Collider (LHC).
+and all the way to [particle physics](https://news.fnal.gov/2020/09/the-next-big-thing-the-use-of-graph-neural-networks-to-discover-particles/) in Large Hedron Collider [(LHC)](https://en.wikipedia.org/wiki/Large_Hadron_Collider), [fake news detection](https://arxiv.org/abs/1902.06673) and the list goes on and on!
 
 GAT is a representative of spatial (convolutional) GNNs. Since CNNs had a tremendous success in the field of computer vision,
 researchers decided to generalize it to graphs and here we are! :nerd_face:
@@ -65,31 +65,31 @@ Nodes use attention to decide how to aggregate their neighborhood, enough talk, 
 <img src="data/readme_pics/attention1.jpg" width="600"/>
 </p>
 
-This is one of the Cora nodes that has the most edges (citations). The colors represent the nodes of the same class.
+This is one of Cora's nodes that has the most edges (citations). The colors represent the nodes of the same class.
 You can clearly see 2 things from this plot:
 * The graph is [homophilic](https://en.wikipedia.org/wiki/Homophily) meaning similar nodes (nodes with same class) tend to cluster together.
-* Edge thickness is the function of attention and since they are all of the same thickness GAT basically learned to do something similar to GCN!
+* Edge thickness on this chart is a function of attention, and since they are all of the same thickness, GAT basically learned to do something similar to [GCN!](https://www.youtube.com/watch?v=VyIOfIglrUM)
+
+Similar rules hold for smaller neighborhoods. Also notice the self edges:
 
 <p align="center">
 <img src="data/readme_pics/attention2.jpg" width="600"/>
 </p>
 
-Similar rules hold for smaller neighborhoods. Also notice the self edge.
+## Analyzing Cora's embedding space (t-SNE)
 
-## Analyzing the embedding space
-
-Ok we've seen attention! What else is there to visualize? Well let's visualize the learned embeddings from GAT's
-last layer. The output of get is a tensor of shape = (2708, 7) where 2708 is the number of nodes in Cora and 7 is
+Ok, we've seen attention! What else is there to visualize? Well, let's visualize the learned embeddings from GAT's
+last layer. The output of GAT is a tensor of shape = (2708, 7) where 2708 is the number of nodes in Cora and 7 is
 the number of classes. Once we project those 7-dim vectors into 2D, using t-SNE, we get this:
 
 <p align="center">
 <img src="data/readme_pics/t-sne.PNG" width="600"/>
 </p>
 
-We can see that nodes with same label/class are roughly clustered together. With these representations it's easy
-to train a simple classifier on top that will tell us which class the node belongs to. GAT achieves `~83%` accuracy on test nodes.
+We can see that nodes with same label/class are roughly **clustered together** - with these representations it's easy
+to train a simple classifier on top that will tell us which class the node belongs to.
 
-Note: I've tried UMAP as well but didn't get nicer results + it has a lot of dependencies if you want to use their plotting util.
+*Note: I've tried UMAP as well but didn't get nicer results + it has a lot of dependencies if you want to use their plot util.*
 
 ## Setup
 
@@ -116,6 +116,7 @@ story on 3 imps
 
 ### Evaluating and profiling GAT
 profiling info
+GAT achieves `~83%` accuracy on test nodes.
 
 ### Tracking using Tensorboard
 
@@ -124,8 +125,8 @@ profiling info
 GAT doesn't require super strong HW, especially not if you just want to play with Cora. With 2+ GBs GPU you're good to go.
 
 It takes (on Cora citation network):
-* ~10 seconds to train it on my RTX 2080 GPU
-* During the training up to 1.5 GBs of VRAM memory is *reserved* (PyTorch's additional caching overhead)
+* ~10 seconds to train on my RTX 2080 GPU
+* 1.5 GBs of VRAM memory is *reserved* (PyTorch's caching overhead - far less is allocated for the actual tensors)
 * The model itself has only 365 KBs!
 
 Compare this to hardware needed even for the smallest of [transformers](https://github.com/gordicaleksa/pytorch-original-transformer#hardware-requirements)!

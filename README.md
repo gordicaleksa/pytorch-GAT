@@ -1,5 +1,5 @@
 ## GAT - Graph Attention Network (PyTorch) :computer: + graphs + :mega: = :heart:
-This repo contains PyTorch implementation of the original GAT paper (:link: [Veličković et al.](https://arxiv.org/abs/1710.10903)). <br/>
+This repo contains a PyTorch implementation of the original GAT paper (:link: [Veličković et al.](https://arxiv.org/abs/1710.10903)). <br/>
 It's aimed at making it **easy to start playing and learning** about GAT and GNNs in general. <br/>
 
 ## Table of Contents
@@ -24,7 +24,7 @@ Graphs can model many interesting natural phenomena so you'll see them used ever
 * Traffic forecasting - e.g. it's used in [Google Maps](https://deepmind.com/blog/article/traffic-prediction-with-advanced-graph-neural-networks)
 * Recommendation systems (used at [Pintrest](https://medium.com/pinterest-engineering/pinsage-a-new-graph-convolutional-neural-network-for-web-scale-recommender-systems-88795a107f48), [Uber](https://eng.uber.com/uber-eats-graph-learning/), [Twitter](https://towardsdatascience.com/temporal-graph-networks-ab8f327f2efe), etc.) 
 
-and all the way to [particle physics](https://news.fnal.gov/2020/09/the-next-big-thing-the-use-of-graph-neural-networks-to-discover-particles/) in Large Hedron Collider [(LHC)](https://en.wikipedia.org/wiki/Large_Hadron_Collider), [fake news detection](https://arxiv.org/abs/1902.06673) and the list goes on and on!
+and all the way to [particle physics](https://news.fnal.gov/2020/09/the-next-big-thing-the-use-of-graph-neural-networks-to-discover-particles/) at Large Hedron Collider [(LHC)](https://en.wikipedia.org/wiki/Large_Hadron_Collider), [fake news detection](https://arxiv.org/abs/1902.06673) and the list goes on and on!
 
 GAT is a representative of spatial (convolutional) GNNs. Since CNNs had a tremendous success in the field of computer vision,
 researchers decided to generalize it to graphs and so here we are! :nerd_face:
@@ -59,7 +59,7 @@ And here is a plot showing the degree distribution on Cora:
 In and out degree plots are the same since we're dealing with an undirected graph. 
 
 On the bottom plot (degree distribution) you can see an interesting peak happening in the `[2, 4]` range.
-Tha means that the majority of nodes have a small number of edges but there is 1 node that has 169 edges! (the big green node)
+This means that the majority of nodes have a small number of edges but there is 1 node that has 169 edges! (the big green node)
 
 ## Attention visualized
 
@@ -123,7 +123,7 @@ and use the most up-to-date versions of Miniconda and CUDA/cuDNN for your system
 Note: not yet added coming in couple of days :heart:
 
 Just run `jupyter notebook` from you Anaconda console and it will open the session in your default browser. <br/>
-Open `The Annotated Transformer ++.ipynb` and you're ready to play!
+Open `The Annotated GAT.ipynb` and you're ready to play!
 
 ---
 
@@ -168,7 +168,7 @@ Having said that most of the fun actually lies in the `playground.py` script.
 
 I've added 3 GAT implementations - some are conceptually easier to understand some are more efficient.
 The most interesting and hardest one to understand is implementation 3.
-Implementation 1 and implementation 3 differ in subtle details but basically do the same thing.
+Implementation 1 and implementation 2 differ in subtle details but basically do the same thing.
 
 All implementations achieve the official GAT's result on Cora -> `82-83%` accuracy on test nodes.
 
@@ -182,7 +182,7 @@ All implementations achieve the official GAT's result on Cora -> `82-83%` accura
 If you want to profile the 3 implementations just uncomment the `profile_gat_implementations()` function in `playground.py`.
 
 There are 2 params you may care about:
-* `store_cache` - set to `True` if you wish to save the memory/time profiling results after you've once run it
+* `store_cache` - set to `True` if you wish to save the memory/time profiling results after you've run it
 * `skip_if_profiling_info_cached` - set to `True` if you want to pull the profiling info from cache
 
 The results will get stored in `data/` in `memory.dict` and `timing.dict` dictionaries (pickle).
@@ -209,7 +209,7 @@ And you'll get crazy visualizations like these ones:
 <img src="data/readme_pics/kk_layout.jpg" width="410"/>
 </p>
 
-One the left you can see the node with the highest degree in the whole Cora dataset.
+On the left you can see the node with the highest degree in the whole Cora dataset.
 
 If you're wondering about why these look like a circle it's because I've used the `layout_reingold_tilford_circular` layout 
 which is particularly well suited for tree like graphs (since we're visualizing a node and it's neighbors this
@@ -218,8 +218,8 @@ subgraph is effectively a `m-ary` tree).
 But you can also use different drawing algorithms like `kamada kawai` (on the right), etc.
 
 Feel free to go through the code and play with plotting attention from different GAT layers, plotting different node
-neighborhoods or attention heads. You can also easily change the number of layers in your GAT although shallow GNNs
-tend to perform the best on `small-world`, `homophilic` graph datasets.
+neighborhoods or attention heads. You can also easily change the number of layers in your GAT, although [shallow GNNs](https://towardsdatascience.com/do-we-need-deep-graph-neural-networks-be62d3ec5c59)
+tend to perform the best on [small-world](https://en.wikipedia.org/wiki/Small-world_network), `homophilic` graph datasets.
 
 ---
 
@@ -230,7 +230,7 @@ If you want to visualize Cora just uncomment `visualize_graph_dataset()` and you
 GAT doesn't require super strong HW, especially not if you just want to play with Cora. With 2+ GBs GPU you're good to go.
 
 It takes (on Cora citation network):
-* ~10 seconds to train on my RTX 2080 GPU
+* ~10 seconds to train GAT on my RTX 2080 GPU
 * 1.5 GBs of VRAM memory is *reserved* (PyTorch's caching overhead - far less is allocated for the actual tensors)
 * The model itself has only 365 KBs!
 
@@ -240,7 +240,7 @@ Compare this to hardware needed even for the smallest of [transformers](https://
 
 * Add jupyter notebook (coming soon)
 * Add inductive example
-* Potentially dd implementation leveraging PyTorch's sparse API
+* Potentially add an implementation leveraging PyTorch's `sparse API`
 
 The repo already has everything it needs for learning purposes, these are just the bonus points. I've tested everything
 from environment setup, to graph visualizations, etc.

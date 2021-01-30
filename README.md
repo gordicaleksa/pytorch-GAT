@@ -37,7 +37,7 @@ Here is a schematic of GAT's structure:
 
 ## Cora visualized
 
-You can't just start talking about GNNs without mentioning the single most famous graph dataset - the **Cora citation network**.
+You can't just start talking about GNNs without mentioning the single most famous graph dataset - **Cora**.
 
 Nodes in Cora represent research papers and the links are, you guessed it, citations between those papers.
 

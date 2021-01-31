@@ -44,7 +44,7 @@ Nodes in Cora represent research papers and the links are, you guessed it, citat
 I've added a utility for visualizing Cora and doing basic network analysis. Here is how Cora looks like:
 
 <p align="center">
-<img src="data/readme_pics/cora_graph.PNG" width="700"/>
+<img src="data/readme_pics/cora_graph_jupyter.PNG"/>
 </p>
 
 Node size corresponds to it's degree (i.e. the number of in/out going edges). Edge thickness roughly corresponds

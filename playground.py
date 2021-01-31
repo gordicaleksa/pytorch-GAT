@@ -304,6 +304,8 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
                 uniform_dist_entropy_list = []  # save the ideal uniform histogram as the reference
                 neighborhood_entropy_list = []
 
+                # This can also be done much more efficiently via scatter_add_ (no for loops)
+                # pseudo: out.scatter_add_(node_dim, -all_attention_weights * log(all_attention_weights), target_index)
                 for target_node_id in range(num_of_nodes):  # find every the neighborhood for every node in the graph
                     # These attention weights sum up to 1 by GAT design so we can treat it as a probability distribution
                     neigborhood_attention = all_attention_weights[target_node_ids == target_node_id].flatten()

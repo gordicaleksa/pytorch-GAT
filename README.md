@@ -77,17 +77,17 @@ You can clearly see 2 things from this plot:
 
 Similar rules hold for smaller neighborhoods. Also notice the self edges:
 
-<p align="center">
-<img src="data/readme_pics/attention2.jpg" width="600"/>
+<p align="left">
+<img src="data/readme_pics/attention2.jpg" width="300"/>
 </p>
 
 ## Entropy histograms
 
 Another way to understand that GAT isn't learning interesting attention patterns on Cora (i.e. that it's learning const attention)
 is by treating the node neighborhood's attention weights as a probability distribution, calculating the entropy, and
-accumulating the info across the whole graph.
+accumulating the info across every node's neighborhood.
 
-We'd love those distributions to be skewed. You can see in orange how the histogram looks like for ideal uniform distributions
+We'd love GAT's attention distributions to be skewed. You can see in orange how the histogram looks like for ideal uniform distributions
 and you can see in light blue the learned distributions - they are exactly the same!
 
 <p align="center">
@@ -214,13 +214,13 @@ like `COO`, `CSR`, `CSC`, `LIL`, etc.
 
 ### Visualization tools
 
-If you want to visualize t-SNE embeddings or the attention just uncomment the `visualize_embedding_space_or_attention()` function.
+If you want to visualize t-SNE embeddings, attention or embeddings uncomment the `visualize_gat_properties` function and
+set `visualization_type` to:
+* `VisualizationType.ATTENTION` - if you wish to visualize attention across node neighborhoods
+* `VisualizationType.EMBEDDING` - if you wish to visualize the embeddings (via t-SNE)
+* `VisualizationType.ENTROPY` - if you wish to visualize the entropy histograms
 
-Set `visualize_attention` to:
-* `True` if you wish to visualize attention
-* `False` if you wish to visualize the embeddings (via t-SNE)
-
-And you'll get crazy visualizations like these ones:
+And you'll get crazy visualizations like these ones (`VisualizationType.ATTENTION` option):
 
 <p align="center">
 <img src="data/readme_pics/attention3.jpg" width="410"/>

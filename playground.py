@@ -165,7 +165,7 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
     }
 
     # Step 1: Prepare the data
-    node_features, node_labels, topology, train_indices, val_indices, test_indices = load_graph_data(config, device)
+    node_features, node_labels, topology, _, _, _ = load_graph_data(config, device)
 
     # Step 2: Prepare the model
     model_path = os.path.join(BINARIES_PATH, model_name)

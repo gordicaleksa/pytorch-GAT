@@ -127,3 +127,15 @@ def visualize_graph(edge_index, node_labels, dataset_name, visualization_tool=Gr
         print(f'Nonetheless tools like igraph can be useful for quick visualization.')
     else:
         raise Exception(f'Visualization tool {visualization_tool.name} not supported.')
+
+
+def draw_entropy_histogram(entropy_array, title, color='blue', uniform_distribution=False, num_bins=30):
+    max_value = np.max(entropy_array)
+    bar_width = (max_value / num_bins) * (1.0 if uniform_distribution else 0.75)
+    histogram_values, histogram_bins = np.histogram(entropy_array, bins=num_bins, range=(0.0, max_value))
+
+    plt.bar(histogram_bins[:num_bins], histogram_values[:num_bins], width=bar_width, color=color)
+    plt.xlabel(f'entropy bins')
+    plt.ylabel(f'# of node neighborhoods')
+    plt.title(title)
+

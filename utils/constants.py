@@ -33,6 +33,12 @@ class LoopPhase(enum.Enum):
     TEST = 2
 
 
+class VisualizationType(enum.Enum):
+    ATTENTION = 0,
+    EMBEDDINGS = 1,
+    ENTROPY = 2,
+
+
 writer = SummaryWriter()  # (tensorboard) writer will output to ./runs/ directory by default
 
 

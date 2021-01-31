@@ -5,6 +5,7 @@ from collections import defaultdict
 
 import torch
 import scipy.sparse as sp
+from scipy.stats import entropy
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,7 +13,8 @@ import igraph as ig
 
 
 from utils.data_loading import normalize_features_sparse, normalize_features_dense, pickle_save, pickle_read, load_graph_data
-from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType, LayerType, DATA_DIR_PATH, cora_label_to_color_map
+from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType, LayerType, DATA_DIR_PATH, cora_label_to_color_map, VisualizationType
+from utils.visualizations import draw_entropy_histogram
 from models.definitions.GAT import GAT
 from utils.utils import print_model_metadata, convert_adj_to_edge_index, name_to_layer_type
 from training_script import train_gat, get_training_args
@@ -142,7 +144,7 @@ def profile_gat_implementations(skip_if_profiling_info_cached=False, store_cache
         print(f'Max mem allocated = {to_GBs(max_memory_allocated)}, max mem reserved = {to_GBs(max_memory_reserved)}.')
 
 
-def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset_name=DatasetType.CORA.name, visualize_attention=True):
+def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetType.CORA.name, visualization_type=VisualizationType.ATTENTION):
     """
     Using t-SNE to visualize GAT embeddings in 2D space.
     Check out this one for more intuition on how to tune t-SNE: https://distill.pub/2016/misread-tsne/
@@ -184,6 +186,8 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
     gat.load_state_dict(model_state["state_dict"], strict=True)
     gat.eval()  # some layers like nn.Dropout behave differently in train vs eval mode so this part is important
 
+    # Step 3: Calculate the things we'll need for different visualization types (attention, scores, edge_index)
+
     # This context manager is important (and you'll often see it), otherwise PyTorch will eat much more memory.
     # It would be saving activations for backprop but we are not going to do any model training just the prediction.
     with torch.no_grad():
@@ -191,17 +195,19 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
         all_nodes_unnormalized_scores, _ = gat((node_features, topology))  # shape = (N, num of classes)
         all_nodes_unnormalized_scores = all_nodes_unnormalized_scores.cpu().numpy()
 
-    if visualize_attention:
+    # We'll need the edge index in different for multiple visualization types
+    if config['layer_type'] == LayerType.IMP3:  # imp 3 works with edge index while others work with adjacency info
+        edge_index = topology
+    else:
+        edge_index = convert_adj_to_edge_index(topology)
+
+    # Step 4: Perform a specific visualization
+    if visualization_type == VisualizationType.ATTENTION:
         # The number of nodes for which we want to visualize their attention over neighboring nodes
         # (2x this actually as we add nodes with highest degree + random nodes)
         num_nodes_of_interest = 4  # 4 is an arbitrary number you can play with these numbers
         head_to_visualize = 0  # plot attention from this multi-head attention's head
         gat_layer_id = 1  # plot attention from this GAT layer
-
-        if config['layer_type'] == LayerType.IMP3:  # imp 3 works with edge index while others work with adjacency info
-            edge_index = topology
-        else:
-            edge_index = convert_adj_to_edge_index(topology)
 
         # Build up the complete graph
         # node_features shape = (N, FIN), where N is the number of nodes and FIN number of input features
@@ -218,13 +224,13 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
         nodes_of_interest_ids = np.append(nodes_of_interest_ids, random_node_ids)
         np.random.shuffle(nodes_of_interest_ids)
 
-        target_nodes = edge_index[1]
+        target_node_ids = edge_index[1]
         source_nodes = edge_index[0]
 
         for target_node_id in nodes_of_interest_ids:
             # Step 1: Find the neighboring nodes to the target node
             # Note: self edge for CORA is included so the target node is it's own neighbor (Alexandro yo soy tu madre)
-            src_nodes_indices = torch.eq(target_nodes, target_node_id)
+            src_nodes_indices = torch.eq(target_node_ids, target_node_id)
             source_node_ids = source_nodes[src_nodes_indices].cpu().numpy()
             size_of_neighborhood = len(source_node_ids)
 
@@ -232,9 +238,9 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
             labels = node_labels[source_node_ids].cpu().numpy()
 
             # Step 3: Fetch the attention weights for edges (attention is logged during GAT's forward pass above)
-            # attention shape = (N, NH, 1) so we just squeeze the last dim it's superfluous
-            attention_layer = gat.gat_net[gat_layer_id].attention_weights.squeeze(dim=-1)
-            attention_weights = attention_layer[src_nodes_indices, head_to_visualize].cpu().numpy()
+            # attention shape = (N, NH, 1) -> (N, NH) - we just squeeze the last dim it's superfluous
+            all_attention_weights = gat.gat_net[gat_layer_id].attention_weights.squeeze(dim=-1)
+            attention_weights = all_attention_weights[src_nodes_indices, head_to_visualize].cpu().numpy()
             # This part shows that for CORA what GAT learns is pretty much constant attention weights! Like in GCN!
             print(f'Max attention weight = {np.max(attention_weights)} and min = {np.min(attention_weights)}')
             attention_weights /= np.max(attention_weights)  # rescale the biggest weight to 1 for nicer plotting
@@ -259,11 +265,9 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
 
             ig.plot(ig_graph, **visual_style)
 
-    else:  # visualize embeddings (using t-SNE)
+    elif visualization_type == VisualizationType.EMBEDDINGS:  # visualize embeddings (using t-SNE)
         node_labels = node_labels.cpu().numpy()
         num_classes = len(set(node_labels))
-
-        # Step 4: Calculate the low dim t-SNE representation
 
         # Feel free to experiment with perplexity it's arguable the most important parameter of t-SNE and it basically
         # controls the standard deviation of Gaussians i.e. the size of the neighborhoods in high dim (original) space.
@@ -278,6 +282,49 @@ def visualize_embedding_space_or_attention(model_name=r'gat_000000.pth', dataset
             # they'll be clustered together on the 2D chart - that would mean that GAT has learned good representations!
             plt.scatter(t_sne_embeddings[node_labels == class_id, 0], t_sne_embeddings[node_labels == class_id, 1], s=20, color=cora_label_to_color_map[class_id], edgecolors='black', linewidths=0.2)
         plt.show()
+
+    # We want our local probability distributions (attention weights over the neighborhoods) to be
+    # non-uniform because that means that GAT is learning a useful pattern. Entropy histograms help us visualize
+    # how different those neighborhood distributions are from the uniform distribution (constant attention).
+    # If the GAT is learning const attention we could well be using GCN or some even simpler models.
+    elif visualization_type == VisualizationType.ENTROPY:
+        num_heads_per_layer = [layer.num_of_heads for layer in gat.gat_net]
+        num_layers = len(num_heads_per_layer)
+
+        num_of_nodes = len(node_features)
+        target_node_ids = edge_index[1].cpu().numpy()
+
+        # For every GAT layer and for every GAT attention head plot the entropy histogram
+        for layer_id in range(num_layers):
+            # Fetch the attention weights for edges (attention is logged during GAT's forward pass above)
+            # attention shape = (N, NH, 1) -> (N, NH) - we just squeeze the last dim it's superfluous
+            all_attention_weights = gat.gat_net[layer_id].attention_weights.squeeze(dim=-1).cpu().numpy()
+
+            for head_id in range(num_heads_per_layer[layer_id]):
+                uniform_dist_entropy_list = []  # save the ideal uniform histogram as the reference
+                neighborhood_entropy_list = []
+
+                for target_node_id in range(num_of_nodes):  # find every the neighborhood for every node in the graph
+                    # These attention weights sum up to 1 by GAT design so we can treat it as a probability distribution
+                    neigborhood_attention = all_attention_weights[target_node_ids == target_node_id].flatten()
+                    # Reference uniform distribution of the same length
+                    ideal_uniform_attention = np.ones(len(neigborhood_attention))/len(neigborhood_attention)
+
+                    # Calculate the entropy, check out this video if you're not familiar with the concept:
+                    # https://www.youtube.com/watch?v=ErfnhcEV1O8 (Aurélien Géron)
+                    neighborhood_entropy_list.append(entropy(neigborhood_attention, base=2))
+                    uniform_dist_entropy_list.append(entropy(ideal_uniform_attention, base=2))
+
+                title = f'Cora entropy histogram layer={layer_id}, attention head={head_id}'
+                draw_entropy_histogram(uniform_dist_entropy_list, title, color='orange', uniform_distribution=True)
+                draw_entropy_histogram(neighborhood_entropy_list, title, color='dodgerblue')
+
+                fig = plt.gcf()  # get current figure
+                plt.show()
+                fig.savefig(os.path.join(DATA_DIR_PATH, f'layer_{layer_id}_head_{head_id}.jpg'))
+                plt.close()
+    else:
+        raise Exception(f'Visualization type {visualization_type} not supported.')
 
 
 def visualize_graph_dataset(dataset_name):
@@ -305,10 +352,10 @@ if __name__ == '__main__':
 
     # visualize_graph_dataset(dataset_name=DatasetType.CORA.name)
 
-    visualize_embedding_space_or_attention(
+    visualize_gat_properties(
         model_name=r'gat_000000.pth',
         dataset_name=DatasetType.CORA.name,
-        visualize_attention=False  # set to False to visualize the embedding space using t-SNE
+        visualization_type=VisualizationType.EMBEDDINGS  # pick between attention, t-SNE embeddings and entropy
     )
 
 

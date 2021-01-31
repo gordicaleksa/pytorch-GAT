@@ -44,7 +44,7 @@ class GAT(torch.nn.Module):
             *gat_layers,
         )
 
-    # data is just a (in_nodes_features, edge_index) tuple, I had to do it like this because of the nn.Sequential:
+    # data is just a (in_nodes_features, topology) tuple, I had to do it like this because of the nn.Sequential:
     # https://discuss.pytorch.org/t/forward-takes-2-positional-arguments-but-3-were-given-for-nn-sqeuential-with-linear-layers/65698
     def forward(self, data):
         return self.gat_net(data)

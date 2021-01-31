@@ -97,11 +97,11 @@ def visualize_graph(edge_index, node_labels, dataset_name, visualization_tool=Gr
         # that go through a certain edge in our graph (edge_betweenness function, a simple ad hoc heuristic)
 
         # line1: I use log otherwise some edges will be too thick and others not visible at all
-        # edge_betweeness returns 0.5 for certain edges that's why I use clip as log would be negative for those edges
+        # edge_betweeness returns < 1.0 for certain edges that's why I use clip as log would be negative for those edges
         # line2: Normalize so that the thickest edge is 1 otherwise edges appear too thick on the chart
         # line3: The idea here is to make the strongest edge stay stronger than others, 6 just worked, don't dwell on it
 
-        edge_weights_raw = np.clip(np.log(ig_graph.edge_betweenness()), a_min=0, a_max=None)
+        edge_weights_raw = np.clip(np.log(np.asarray(ig_graph.edge_betweenness()) + 1e-16), a_min=0, a_max=None)
         edge_weights_raw_normalized = edge_weights_raw / np.max(edge_weights_raw)
         edge_weights = [w**6 for w in edge_weights_raw_normalized]
         visual_style["edge_width"] = edge_weights

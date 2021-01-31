@@ -81,6 +81,22 @@ Similar rules hold for smaller neighborhoods. Also notice the self edges:
 <img src="data/readme_pics/attention2.jpg" width="600"/>
 </p>
 
+## Entropy histograms
+
+Another way to understand that GAT isn't learning interesting attention patterns on Cora (i.e. that it's learning const attention)
+is by treating the node neighborhood's attention weights as a probability distribution, calculating the entropy, and
+accumulating the info across the whole graph.
+
+We'd love those distributions to be skewed. You can see in orange how the histogram looks like for ideal uniform distributions
+and you can see in light blue the learned distributions - they are exactly the same!
+
+<p align="center">
+<img src="data/readme_pics/entropy_histograms/layer_0_head_0.jpg"/>
+<img src="data/readme_pics/entropy_histograms/layer_1_head_0.jpg"/>
+</p>
+
+I've plotted only a single attention head from the first layer (out of 8) because they're all the same!
+
 ## Analyzing Cora's embedding space (t-SNE)
 
 Ok, we've seen attention! What else is there to visualize? Well, let's visualize the learned embeddings from GAT's

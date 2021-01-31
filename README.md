@@ -78,8 +78,8 @@ You can clearly see 2 things from this plot:
 Similar rules hold for smaller neighborhoods. Also notice the self edges:
 
 <p align="left">
-<img src="data/readme_pics/attention2.jpg" width="300"/>
-<img src="data/readme_pics/attention4.jpg" width="300"/>
+<img src="data/readme_pics/attention2.jpg" width="400"/>
+<img src="data/readme_pics/attention4.jpg" width="400"/>
 </p>
 
 ## Entropy histograms

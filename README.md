@@ -91,11 +91,13 @@ We'd love those distributions to be skewed. You can see in orange how the histog
 and you can see in light blue the learned distributions - they are exactly the same!
 
 <p align="center">
-<img src="data/readme_pics/entropy_histograms/layer_0_head_0.jpg"/>
-<img src="data/readme_pics/entropy_histograms/layer_1_head_0.jpg"/>
+<img src="data/readme_pics/entropy_histograms/layer_0_head_0.jpg" width="400"/>
+<img src="data/readme_pics/entropy_histograms/layer_1_head_0.jpg" width="400"/>
 </p>
 
 I've plotted only a single attention head from the first layer (out of 8) because they're all the same!
+
+**Note: I'll soon add an additional graph dataset (PPI probably).**
 
 ## Analyzing Cora's embedding space (t-SNE)
 

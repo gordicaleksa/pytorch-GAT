@@ -146,7 +146,7 @@ def profile_gat_implementations(skip_if_profiling_info_cached=False, store_cache
 
 def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetType.CORA.name, visualization_type=VisualizationType.ATTENTION):
     """
-    Using t-SNE to visualize GAT embeddings in 2D space.
+    Notes on t-SNE:
     Check out this one for more intuition on how to tune t-SNE: https://distill.pub/2016/misread-tsne/
 
     If you think it'd be useful for me to implement t-SNE as well and explain how every single detail works

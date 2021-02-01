@@ -139,8 +139,6 @@ and use the most up-to-date versions of Miniconda and CUDA/cuDNN for your system
 
 #### Option 1: Jupyter Notebook
 
-Note: not yet added coming in couple of days :heart:
-
 Just run `jupyter notebook` from you Anaconda console and it will open the session in your default browser. <br/>
 Open `The Annotated GAT.ipynb` and you're ready to play!
 
@@ -257,8 +255,7 @@ Compare this to hardware needed even for the smallest of [transformers](https://
 
 ### Future todos:
 
-* Add jupyter notebook (coming soon)
-* Add inductive example
+* Add an inductive example
 * Potentially add an implementation leveraging PyTorch's `sparse API`
 
 The repo already has everything it needs for learning purposes, these are just the bonus points. I've tested everything

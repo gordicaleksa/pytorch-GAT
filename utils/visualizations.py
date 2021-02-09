@@ -64,6 +64,12 @@ def visualize_graph(edge_index, node_labels, dataset_name, visualization_tool=Gr
 
     Basically depending on how big your graph is there may be better drawing tools than igraph.
 
+    Note:
+    There are also some nice browser-based tools to visualize graphs like this one:
+        http://networkrepository.com/graphvis.php?d=./data/gsm50/labeled/cora.edges
+
+    Nonetheless tools like igraph can be useful for quick visualization directly from Python
+
     """
     assert isinstance(edge_index, np.ndarray), f'Expected NumPy array got {type(edge_index)}.'
     if edge_index.shape[0] == edge_index.shape[1]:
@@ -122,9 +128,6 @@ def visualize_graph(edge_index, node_labels, dataset_name, visualization_tool=Gr
 
         print('Plotting results ... (it may take couple of seconds).')
         ig.plot(ig_graph, **visual_style)
-
-        print(f'There are much better tools to visualize Cora like this one {network_repository_cora_url}.')
-        print(f'Nonetheless tools like igraph can be useful for quick visualization.')
     else:
         raise Exception(f'Visualization tool {visualization_tool.name} not supported.')
 

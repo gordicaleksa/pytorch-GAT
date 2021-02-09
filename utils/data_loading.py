@@ -38,10 +38,12 @@
 
 import pickle
 import zipfile
+import json
 
 
 import numpy as np
 import networkx as nx
+from networkx.readwrite import json_graph
 import scipy.sparse as sp
 import torch
 from torch.hub import download_url_to_file
@@ -104,9 +106,11 @@ def load_graph_data(training_config, device):
         test_indices = torch.arange(CORA_TEST_RANGE[0], CORA_TEST_RANGE[1], dtype=torch.long, device=device)
 
         return node_features, node_labels, topology, train_indices, val_indices, test_indices
+
     elif dataset_name == DatasetType.PPI.name.lower():
+
         # Instead of checking it in, I'd rather download it on-the-fly the first time it's needed (lazy execution ^^)
-        if not os.path.exists(PPI_PATH):
+        if not os.path.exists(PPI_PATH):  # optionally download the first time this is ran
             os.makedirs(PPI_PATH)
 
             # Step 1: Download the ppi.zip (contains the PPI dataset)
@@ -122,10 +126,61 @@ def load_graph_data(training_config, device):
             os.remove(zip_tmp_path)
             print(f'Removing tmp file {zip_tmp_path}.')
 
-        # todo: load PPI
-        raise Exception(f'{dataset_name} not yet supported.')
+        # Collect train/val/test data here
+        edge_index_list = []
+        node_features_list = []
+        node_labels_list = []
+
+        for split in ['train', 'valid', 'test']:
+            # Graph topology stored in a special nodes-links NetworkX format
+            nodes_links_dict = json_read(os.path.join(PPI_PATH, f'{split}_graph.json'))
+            # PPI contains graphs with self edges - 20 train graphs, 2 validation graphs and 2 test graphs
+            collection_of_graphs = nx.DiGraph(json_graph.node_link_graph(nodes_links_dict))
+            # For each node in the above collection ids specify to which graph the node belongs to
+            graph_ids = np.load(os.path.join(PPI_PATH, F'{split}_graph_id.npy'))
+
+            # PPI has 50 features per node, it's a combination of positional gene sets, motif gene sets,
+            # and immunological signatures - you can treat it as a black box (I personally have a rough understanding)
+            # shape = (NS, 50) - where NS is the number of (N)odes in the training/val/test (S)plit
+            node_features = np.load(os.path.join(PPI_PATH, f'{split}_feats.npy'))
+
+            # PPI has 121 labels and each node can have multiple labels associated (gene ontology stuff)
+            # SHAPE = (NS, 121)
+            node_labels = np.load(os.path.join(PPI_PATH, f'{split}_labels.npy'))
+
+            # Separate the collection of graphs into separate PPI graphs
+            for graph_id in range(np.min(graph_ids), np.max(graph_ids) + 1):
+                mask = graph_ids == graph_id  # find the nodes which belong to the current graph
+                graph_node_ids = np.asarray(mask).nonzero()[0]
+                graph = collection_of_graphs.subgraph(graph_node_ids)  # returns the induced subgraph over these nodes
+                print(f'{split} graph {graph_id}, has {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges.')
+
+                # shape = (2, E) - where E is the number of edges in the graph
+                edge_index = torch.tensor(list(graph.edges), dtype=torch.long).transpose(0, 1).contiguous()
+                edge_index_list.append(edge_index)
+                # shape = (N, 50) - where N is the number of edges in the graph
+                node_features_list.append(torch.tensor(node_features[mask]))
+                # shape = (N, 121)
+                node_labels_list.append(torch.tensor(node_labels[mask]))
+
+                if should_visualize:
+                    # igraph expects the edges to be pointing to nodes from the [0, num_of_nodes] ids, so normalizing
+                    # to that range otherwise some graphs would be pointing from offset to offset + num_of_nodes,
+                    # where offset is the sum of the nodes that came before this graph.
+                    edge_index_normalized = (edge_index - edge_index.min()).numpy()
+                    plot_in_out_degree_distributions(edge_index_normalized, graph.number_of_nodes(), dataset_name)
+                    visualize_graph(edge_index_normalized, node_labels[mask], dataset_name)
+
+        return edge_index_list, node_features_list, node_labels_list
     else:
         raise Exception(f'{dataset_name} not yet supported.')
+
+
+def json_read(path):
+    with open(path, 'r') as file:
+        data = json.load(file)
+
+    return data
 
 
 # All Cora data is stored as pickle

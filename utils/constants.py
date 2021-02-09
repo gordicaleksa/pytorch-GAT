@@ -10,7 +10,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 # Supported datasets - currently only Cora
 class DatasetType(enum.Enum):
-    CORA = 0
+    CORA = 0,
+    PPI = 1
 
 
 # Networkx is not precisely made with drawing as it's main feature but I experimented with it a bit
@@ -52,7 +53,6 @@ PATIENCE_CNT = 0
 BINARIES_PATH = os.path.join(os.path.dirname(__file__), os.pardir, 'models', 'binaries')
 CHECKPOINTS_PATH = os.path.join(os.path.dirname(__file__), os.pardir, 'models', 'checkpoints')
 DATA_DIR_PATH = os.path.join(os.path.dirname(__file__), os.pardir, 'data')
-CORA_PATH = os.path.join(DATA_DIR_PATH, 'cora')  # this is checked-in no need to make a directory
 
 # Make sure these exist as the rest of the code assumes it
 os.makedirs(BINARIES_PATH, exist_ok=True)
@@ -61,6 +61,8 @@ os.makedirs(CHECKPOINTS_PATH, exist_ok=True)
 #
 # Cora specific information
 #
+
+CORA_PATH = os.path.join(DATA_DIR_PATH, 'cora')  # this is checked-in no need to make a directory
 
 # Thomas Kipf et al. first used this split in GCN paper and later Petar Veličković et al. in GAT paper
 CORA_TRAIN_RANGE = [0, 140]
@@ -73,6 +75,14 @@ network_repository_cora_url = r'http://networkrepository.com/graphvis.php?d=./da
 
 # Used whenever we need to plot points from different class (like t-SNE in playground.py and CORA visualization)
 cora_label_to_color_map = {0: "red", 1: "blue", 2: "green", 3: "orange", 4: "yellow", 5: "pink", 6: "gray"}
+
+#
+# PPI specific information
+#
+
+PPI_PATH = os.path.join(DATA_DIR_PATH, 'ppi')
+PPI_URL = 'https://data.dgl.ai/dataset/ppi.zip'
+
 
 
 

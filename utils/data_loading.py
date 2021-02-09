@@ -37,12 +37,14 @@
 """
 
 import pickle
+import zipfile
 
 
 import numpy as np
 import networkx as nx
 import scipy.sparse as sp
 import torch
+from torch.hub import download_url_to_file
 
 
 from utils.constants import *
@@ -102,6 +104,26 @@ def load_graph_data(training_config, device):
         test_indices = torch.arange(CORA_TEST_RANGE[0], CORA_TEST_RANGE[1], dtype=torch.long, device=device)
 
         return node_features, node_labels, topology, train_indices, val_indices, test_indices
+    elif dataset_name == DatasetType.PPI.name.lower():
+        # Instead of checking it in, I'd rather download it on-the-fly the first time it's needed (lazy execution ^^)
+        if not os.path.exists(PPI_PATH):
+            os.makedirs(PPI_PATH)
+
+            # Step 1: Download the ppi.zip (contains the PPI dataset)
+            zip_tmp_path = os.path.join(PPI_PATH, 'ppi.zip')
+            download_url_to_file(PPI_URL, zip_tmp_path)
+
+            # Step 2: Unzip it
+            with zipfile.ZipFile(zip_tmp_path) as zf:
+                zf.extractall(path=PPI_PATH)
+            print(f'Unzipping to: {PPI_PATH} finished.')
+
+            # Step3: Remove the temporary resource file
+            os.remove(zip_tmp_path)
+            print(f'Removing tmp file {zip_tmp_path}.')
+
+        # todo: load PPI
+        raise Exception(f'{dataset_name} not yet supported.')
     else:
         raise Exception(f'{dataset_name} not yet supported.')
 

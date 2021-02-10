@@ -70,8 +70,8 @@ def get_training_state(training_config, model):
     return training_state
 
 
-def get_available_binary_name():
-    prefix = 'gat'
+def get_available_binary_name(dataset_name='unknown'):
+    prefix = f'gat_{dataset_name}'
 
     def valid_binary_name(binary_name):
         # First time you see raw f-string? Don't worry the only trick is to double the brackets.

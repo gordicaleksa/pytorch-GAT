@@ -192,7 +192,7 @@ def load_graph_data(training_config, device):
             edge_index_list[num_graphs_per_split[1]:num_graphs_per_split[2]],
             node_features_list[num_graphs_per_split[1]:num_graphs_per_split[2]],
             node_labels_list[num_graphs_per_split[1]:num_graphs_per_split[2]],
-            batch_size=2,
+            batch_size=training_config['batch_size'],
             shuffle=False  # no need to shuffle the validation and test graphs
         )
 
@@ -200,7 +200,7 @@ def load_graph_data(training_config, device):
             edge_index_list[num_graphs_per_split[2]:num_graphs_per_split[3]],
             node_features_list[num_graphs_per_split[2]:num_graphs_per_split[3]],
             node_labels_list[num_graphs_per_split[2]:num_graphs_per_split[3]],
-            batch_size=2,
+            batch_size=training_config['batch_size'],
             shuffle=False
         )
 

@@ -73,6 +73,8 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
             loss.backward()  # compute the gradients for every trainable weight in the computational graph
             optimizer.step()  # apply the gradients to weights
 
+        # Calculate the main metric - accuracy
+
         # Finds the index of maximum (unnormalized) score for every node and that's the class prediction for that node.
         # Compare those to true (ground truth) labels and find the fraction of correct predictions -> accuracy metric.
         class_predictions = torch.argmax(nodes_unnormalized_scores, dim=-1)
@@ -90,7 +92,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
 
             # Save model checkpoint
             if config['checkpoint_freq'] is not None and (epoch + 1) % config['checkpoint_freq'] == 0:
-                ckpt_model_name = f"gat_ckpt_epoch_{epoch + 1}.pth"
+                ckpt_model_name = f'gat_{config["dataset_name"]}_ckpt_epoch_{epoch + 1}.pth'
                 config['test_perf'] = -1
                 torch.save(utils.get_training_state(config, gat), os.path.join(CHECKPOINTS_PATH, ckpt_model_name))
 
@@ -108,7 +110,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
             # or the val loss keeps going down we won't stop
             if accuracy > BEST_VAL_PERF or loss.item() < BEST_VAL_LOSS:
                 BEST_VAL_PERF = max(accuracy, BEST_VAL_PERF)  # keep track of the best validation accuracy so far
-                BEST_VAL_LOSS = min(loss.item(), BEST_VAL_LOSS)
+                BEST_VAL_LOSS = min(loss.item(), BEST_VAL_LOSS)  # and the minimal loss
                 PATIENCE_CNT = 0  # reset the counter every time we encounter new best accuracy
             else:
                 PATIENCE_CNT += 1  # otherwise keep counting
@@ -139,7 +141,7 @@ def train_gat(config):
         bias=config['bias'],
         dropout=config['dropout'],
         layer_type=config['layer_type'],
-        log_attention_weights=False  # no need to store attentions, used only in playground.py while visualizing
+        log_attention_weights=False  # no need to store attentions, used only in playground.py for visualizations
     ).to(device)
 
     # Step 3: Prepare other training related utilities (loss & optimizer and decorator function)
@@ -187,7 +189,10 @@ def train_gat(config):
         config['test_perf'] = -1
 
     # Save the latest GAT in the binaries directory
-    torch.save(utils.get_training_state(config, gat), os.path.join(BINARIES_PATH, utils.get_available_binary_name()))
+    torch.save(
+        utils.get_training_state(config, gat),
+        os.path.join(BINARIES_PATH, utils.get_available_binary_name(config['dataset_name']))
+    )
 
 
 def get_training_args():

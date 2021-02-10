@@ -17,7 +17,7 @@ import utils.utils as utils
 # Simple decorator function so that I don't have to pass arguments that don't change from epoch to epoch
 def get_main_loop(config, gat, sigmoid_cross_entropy_loss, optimizer, patience_period, time_start):
 
-    device = next(gat.parameters()).device
+    device = next(gat.parameters()).device  # fetch the device info from the model instead of passing it as a param
 
     def main_loop(phase, data_loader, epoch=0):
         global BEST_VAL_PERF, BEST_VAL_LOSS, PATIENCE_CNT, writer
@@ -29,24 +29,32 @@ def get_main_loop(config, gat, sigmoid_cross_entropy_loss, optimizer, patience_p
         else:
             gat.eval()
 
+        # Iterate over batches of graph data (2 graphs per batch was used in the original paper for the PPI dataset)
+        # We merge them into a single graph with 2 connected components, that's the main idea. After that
+        # the implementation #3 is agnostic to the fact that those are multiple and not a single graph!
         for batch_idx, (edge_index, node_features, gt_node_labels) in enumerate(data_loader):
-            # todo: consider loading the whole dataset to GPU if enough VRAM is available (it will speed up things!)
-            # todo: check how much GPU/RAM does PPI occupy
+            # Push the batch onto GPU - note PPI is to big to load the whole dataset into a normal GPU
+            # it takes almost 8 GBs of VRAM to train it on a GPU
             edge_index = edge_index.to(device)
             node_features = node_features.to(device)
             gt_node_labels = gt_node_labels.to(device)
+
+            # I pack data into tuples because GAT uses nn.Sequential which expects this format
             graph_data = (node_features, edge_index)
 
             # Note: [0] just extracts the node_features part of the data (index 1 contains the edge_index)
-            # shape = (N, C) where N is the number of nodes in the batch and C is the number of classes
+            # shape = (N, C) where N is the number of nodes in the batch and C is the number of classes (121 for PPI)
+            # GAT imp #3 is agnostic to the fact that we actually have multiple graphs
+            # (it sees a single graph with multiple connected components)
             nodes_unnormalized_scores = gat(graph_data)[0]
 
-            # Example: because PPI has got 121 labels let's make a toy example that will show how the loss works.
-            # Let's say that a single node's unnormalized scores are [-3, 0, 3]. What this loss will do is first
-            # it will apply a sigmoid and so we'll end up with [0.048, 0.5, 0.95] now it will apply a binary cross
-            # entropy across all of these and find the average, that's it! So if the true classes were [0, 0, 1]
-            # the loss would be (-log(1-0.048) + -log(1-0.5) + -log(0.95))/3. You can see that the log takes 2 forms
-            # depending whether the true label is 0 or 1 either -log(1-x) or -log(x) respectively.
+            # Example: because PPI has 121 labels let's make a simple toy example that will show how the loss works.
+            # Let's say we have 3 labels instead and a single node's unnormalized (raw GAT output) scores are [-3, 0, 3]
+            # What this loss will do is first it will apply a sigmoid and so we'll end up with: [0.048, 0.5, 0.95]
+            # next it will apply a binary cross entropy across all of these and find the average, and that's it!
+            # So if the true classes were [0, 0, 1] the loss would be (-log(1-0.048) + -log(1-0.5) + -log(0.95))/3.
+            # You can see that the logarithm takes 2 forms depending on whether the true label is 0 or 1,
+            # either -log(1-x) or -log(x) respectively. Easy-peasy. <3
             loss = sigmoid_cross_entropy_loss(nodes_unnormalized_scores, gt_node_labels)
 
             if phase == LoopPhase.TRAIN:
@@ -54,8 +62,11 @@ def get_main_loop(config, gat, sigmoid_cross_entropy_loss, optimizer, patience_p
                 loss.backward()  # compute the gradients for every trainable weight in the computational graph
                 optimizer.step()  # apply the gradients to weights
 
-            # If the score is bigger than 0 that means that sigmoid would have a value higher than 0.5 and thus we
-            # have predicted 1 for that label otherwise we have predicted 0
+            # Calculate the main metric - micro F1
+
+            # Convert unnormalized scores into predictions. Explanation:
+            # If the unnormalized score is bigger than 0 that means that sigmoid would have a value higher than 0.5
+            # (by sigmoid's definition) and thus we have predicted 1 for that label otherwise we have predicted 0.
             pred = (nodes_unnormalized_scores > 0).float().cpu().numpy()
             gt = gt_node_labels.cpu().numpy()
             micro_f1 = f1_score(gt, pred, average='micro')
@@ -64,41 +75,40 @@ def get_main_loop(config, gat, sigmoid_cross_entropy_loss, optimizer, patience_p
             # Logging
             #
 
+            global_step = len(data_loader) * epoch + batch_idx
             if phase == LoopPhase.TRAIN:
-                training_step = len(data_loader) * epoch + batch_idx
-
                 # Log metrics
                 if config['enable_tensorboard']:
-                    writer.add_scalar('training_loss', loss.item(), training_step)
-                    writer.add_scalar('training_micro_f1', micro_f1, training_step)
+                    writer.add_scalar('training_loss', loss.item(), global_step)
+                    writer.add_scalar('training_micro_f1', micro_f1, global_step)
 
                 # Log to console
-                if config['console_log_freq'] is not None:
-                    print(f'GAT training: time elapsed= {(time.time() - time_start):.2f} [s] | epoch={epoch + 1} | b_idx={batch_idx + 1} | train micro-F1={micro_f1}')
+                if config['console_log_freq'] is not None and batch_idx % config['console_log_freq'] == 0:
+                    print(f'GAT training: time elapsed= {(time.time() - time_start):.2f} [s] |'
+                          f' epoch={epoch + 1} | batch={batch_idx + 1} | train micro-F1={micro_f1}.')
 
                 # Save model checkpoint
                 if config['checkpoint_freq'] is not None and (epoch + 1) % config['checkpoint_freq'] == 0 and batch_idx == 0:
-                    ckpt_model_name = f"gat_ppi_ckpt_epoch_{epoch + 1}.pth"
-                    config['test_perf'] = -1
+                    ckpt_model_name = f'gat_{config["dataset_name"]}_ckpt_epoch_{epoch + 1}.pth'
+                    config['test_perf'] = -1  # test perf not calculated yet, note: perf means main metric micro-F1 here
                     torch.save(utils.get_training_state(config, gat), os.path.join(CHECKPOINTS_PATH, ckpt_model_name))
 
             elif phase == LoopPhase.VAL:
-                val_step = len(data_loader) * epoch + batch_idx
-
                 # Log metrics
                 if config['enable_tensorboard']:
-                    writer.add_scalar('val_loss', loss.item(), val_step)
-                    writer.add_scalar('val_micro_f1', micro_f1, val_step)
+                    writer.add_scalar('val_loss', loss.item(), global_step)
+                    writer.add_scalar('val_micro_f1', micro_f1, global_step)
 
                 # Log to console
-                if config['console_log_freq'] is not None and epoch % config['console_log_freq'] == 0 and batch_idx == 0:
-                    print(f'GAT training: time elapsed= {(time.time() - time_start):.2f} [s] | epoch={epoch + 1} | val micro-F1={micro_f1}')
+                if config['console_log_freq'] is not None and batch_idx % config['console_log_freq'] == 0:
+                    print(f'GAT validation: time elapsed= {(time.time() - time_start):.2f} [s] |'
+                          f' epoch={epoch + 1} | batch={batch_idx + 1} | val micro-F1={micro_f1}')
 
                 # The "patience" logic - should we break out from the training loop? If either validation micro-F1
                 # keeps going up or the val loss keeps going down we won't stop
                 if micro_f1 > BEST_VAL_PERF or loss.item() < BEST_VAL_LOSS:
                     BEST_VAL_PERF = max(micro_f1, BEST_VAL_PERF)  # keep track of the best validation micro_f1 so far
-                    BEST_VAL_LOSS = min(loss.item(), BEST_VAL_LOSS)
+                    BEST_VAL_LOSS = min(loss.item(), BEST_VAL_LOSS)  # and the minimal loss
                     PATIENCE_CNT = 0  # reset the counter every time we encounter new best micro_f1
                 else:
                     PATIENCE_CNT += 1  # otherwise keep counting
@@ -112,12 +122,21 @@ def get_main_loop(config, gat, sigmoid_cross_entropy_loss, optimizer, patience_p
     return main_loop  # return the decorated function
 
 
-def train_gat(config):
+def train_gat_ppi(config):
+    """
+    Very similar to Cora's training script. The main differences are:
+    1. Using dataloaders since we're dealing with an inductive setting - multiple graphs per batch
+    2. Doing multi-class classification (BCEWithLogitsLoss) and reporting micro-F1 instead of accuracy
+    3. Model architecture and hyperparams are a bit different (as reported in the GAT paper)
+
+    """
     global BEST_VAL_PERF, BEST_VAL_LOSS
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
+    # Checking whether you have a strong GPU. Since PPI training requires almost 8 GBs of VRAM
+    # I've added the option to force the use of CPU even though you have a GPU on your system (but it's too weak).
+    device = torch.device("cuda" if torch.cuda.is_available() and not config['force_cpu'] else "cpu")
 
-    # Step 1: load the graph data
+    # Step 1: prepare the data loaders
     data_loader_train, data_loader_val, data_loader_test = load_graph_data(config, device)
 
     # Step 2: prepare the model
@@ -129,7 +148,7 @@ def train_gat(config):
         bias=config['bias'],
         dropout=config['dropout'],
         layer_type=config['layer_type'],
-        log_attention_weights=False  # no need to store attentions, used only in playground.py while visualizing
+        log_attention_weights=False  # no need to store attentions, used only in playground.py for visualizations
     ).to(device)
 
     # Step 3: Prepare other training related utilities (loss & optimizer and decorator function)
@@ -166,33 +185,39 @@ def train_gat(config):
     if config['should_test']:
         micro_f1 = main_loop(phase=LoopPhase.TEST, data_loader=data_loader_test)
         config['test_perf'] = micro_f1
+
+        print('*' * 50)
         print(f'Test micro-F1 = {micro_f1}')
     else:
         config['test_perf'] = -1
 
     # Save the latest GAT in the binaries directory
-    torch.save(utils.get_training_state(config, gat), os.path.join(BINARIES_PATH, utils.get_available_binary_name()))
+    torch.save(
+        utils.get_training_state(config, gat),
+        os.path.join(BINARIES_PATH, utils.get_available_binary_name(config['dataset_name']))
+    )
 
 
 def get_training_args():
     parser = argparse.ArgumentParser()
 
     # Training related
-    parser.add_argument("--num_of_epochs", type=int, help="number of training epochs", default=10000)
-    parser.add_argument("--patience_period", type=int, help="number of epochs with no improvement on val before terminating", default=1000)
+    parser.add_argument("--num_of_epochs", type=int, help="number of training epochs", default=200)
+    parser.add_argument("--patience_period", type=int, help="number of epochs with no improvement on val before terminating", default=100)
     parser.add_argument("--lr", type=float, help="model learning rate", default=5e-3)
     parser.add_argument("--weight_decay", type=float, help="L2 regularization on model weights", default=0)
     parser.add_argument("--should_test", action='store_true', help='should test the model on the test dataset? (no by default)')
+    parser.add_argument("--force_cpu", action='store_true', help='use CPU if your GPU is too small (no by default)')
 
-    # Dataset related
+    # Dataset related (note: we need the dataset name for metadata and related stuff, and not for picking the dataset)
     parser.add_argument("--dataset_name", choices=[el.name for el in DatasetType], help='dataset to use for training', default=DatasetType.PPI.name)
     parser.add_argument("--batch_size", type=int, help='number of graphs in a batch', default=2)
     parser.add_argument("--should_visualize", action='store_true', help='should visualize the dataset? (no by default)')
 
     # Logging/debugging/checkpoint related (helps a lot with experimentation)
     parser.add_argument("--enable_tensorboard", action='store_true', help="enable tensorboard logging (no by default)")
-    parser.add_argument("--console_log_freq", type=int, help="log to output console (epoch) freq (None for no logging)", default=100)
-    parser.add_argument("--checkpoint_freq", type=int, help="checkpoint model saving (epoch) freq (None for no logging)", default=1000)
+    parser.add_argument("--console_log_freq", type=int, help="log to output console (batch) freq (None for no logging)", default=10)
+    parser.add_argument("--checkpoint_freq", type=int, help="checkpoint model saving (epoch) freq (None for no logging)", default=5)
     args = parser.parse_args()
 
     # Model architecture related
@@ -221,4 +246,4 @@ def get_training_args():
 if __name__ == '__main__':
 
     # Train the graph attention network (GAT)
-    train_gat(get_training_args())
+    train_gat_ppi(get_training_args())

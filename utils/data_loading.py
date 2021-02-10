@@ -169,9 +169,9 @@ def load_graph_data(training_config, device):
                 edge_index = edge_index - edge_index.min()  # bring the edges to [0, num_of_nodes] range
                 edge_index_list.append(edge_index)
                 # shape = (N, 50) - where N is the number of edges in the graph
-                node_features_list.append(torch.tensor(node_features[mask]))
+                node_features_list.append(torch.tensor(node_features[mask], dtype=torch.float))
                 # shape = (N, 121)
-                node_labels_list.append(torch.tensor(node_labels[mask]))
+                node_labels_list.append(torch.tensor(node_labels[mask], dtype=torch.float))
 
                 if should_visualize:
                     plot_in_out_degree_distributions(edge_index.numpy(), graph.number_of_nodes(), dataset_name)
@@ -214,7 +214,7 @@ class GraphDataLoader(DataLoader):
 
     def __init__(self, edge_index_list, node_features_list, node_labels_list, batch_size=1, shuffle=False):
         graph_dataset = GraphDataset(edge_index_list, node_features_list, node_labels_list)
-        super().__init__(graph_dataset, batch_size, shuffle, collate_fn=custom_collate_fn)
+        super().__init__(graph_dataset, batch_size, shuffle, collate_fn=graph_collate_fn)
 
 
 class GraphDataset(Dataset):
@@ -227,11 +227,11 @@ class GraphDataset(Dataset):
     def __len__(self):
         return len(self.edge_index_list)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx):  # we just fetch a single graph
         return self.edge_index_list[idx], self.node_features_list[idx], self.node_labels_list[idx]
 
 
-def custom_collate_fn(batch):
+def graph_collate_fn(batch):
     # The main idea here is to take the subgraphs i.e. multiple graphs from PPI as defined by the batch size
     # and merge them into a single graph with multiple components
     edge_index_list = []

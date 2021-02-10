@@ -2,6 +2,7 @@ import argparse
 import time
 
 
+from sklearn.metrics import f1_score
 import torch
 import torch.nn as nn
 from torch.optim import Adam
@@ -19,7 +20,7 @@ def get_main_loop(config, gat, sigmoid_cross_entropy_loss, optimizer, patience_p
     device = next(gat.parameters()).device
 
     def main_loop(phase, data_loader, epoch=0):
-        global BEST_VAL_ACC, BEST_VAL_LOSS, PATIENCE_CNT, writer
+        global BEST_VAL_PERF, BEST_VAL_LOSS, PATIENCE_CNT, writer
 
         # Certain modules behave differently depending on whether we're training the model or not.
         # e.g. nn.Dropout - we only want to drop model weights during the training.
@@ -28,7 +29,7 @@ def get_main_loop(config, gat, sigmoid_cross_entropy_loss, optimizer, patience_p
         else:
             gat.eval()
 
-        for edge_index, node_features, gt_node_labels in data_loader:
+        for batch_idx, (edge_index, node_features, gt_node_labels) in enumerate(data_loader):
             # todo: consider loading the whole dataset to GPU if enough VRAM is available (it will speed up things!)
             # todo: check how much GPU/RAM does PPI occupy
             edge_index = edge_index.to(device)
@@ -40,14 +41,12 @@ def get_main_loop(config, gat, sigmoid_cross_entropy_loss, optimizer, patience_p
             # shape = (N, C) where N is the number of nodes in the batch and C is the number of classes
             nodes_unnormalized_scores = gat(graph_data)[0]
 
-            # todo: create a new description
-            # Example: let's take an output for a single node on Cora - it's a vector of size 7 and it contains unnormalized
-            # scores like: V = [-1.393,  3.0765, -2.4445,  9.6219,  2.1658, -5.5243, -4.6247]
-            # What PyTorch's cross entropy loss does is for every such vector it first applies a softmax, and so we'll
-            # have the V transformed into: [1.6421e-05, 1.4338e-03, 5.7378e-06, 0.99797, 5.7673e-04, 2.6376e-07, 6.4848e-07]
-            # secondly, whatever the correct class is (say it's 3), it will then take the element at position 3,
-            # 0.99797 in this case, and the loss will be -log(0.99797). It does this for every node and applies a mean.
-            # You can see that as the probability of the correct class for most nodes approaches 1 we get to 0 loss! <3
+            # Example: because PPI has got 121 labels let's make a toy example that will show how the loss works.
+            # Let's say that a single node's unnormalized scores are [-3, 0, 3]. What this loss will do is first
+            # it will apply a sigmoid and so we'll end up with [0.048, 0.5, 0.95] now it will apply a binary cross
+            # entropy across all of these and find the average, that's it! So if the true classes were [0, 0, 1]
+            # the loss would be (-log(1-0.048) + -log(1-0.5) + -log(0.95))/3. You can see that the log takes 2 forms
+            # depending whether the true label is 0 or 1 either -log(1-x) or -log(x) respectively.
             loss = sigmoid_cross_entropy_loss(nodes_unnormalized_scores, gt_node_labels)
 
             if phase == LoopPhase.TRAIN:
@@ -55,39 +54,50 @@ def get_main_loop(config, gat, sigmoid_cross_entropy_loss, optimizer, patience_p
                 loss.backward()  # compute the gradients for every trainable weight in the computational graph
                 optimizer.step()  # apply the gradients to weights
 
-            # todo: add micro-F1 score
-            micro_f1 = -1  # dummy to first test the whole pipeline
+            # If the score is bigger than 0 that means that sigmoid would have a value higher than 0.5 and thus we
+            # have predicted 1 for that label otherwise we have predicted 0
+            pred = (nodes_unnormalized_scores > 0).float().cpu().numpy()
+            gt = gt_node_labels.cpu().numpy()
+            micro_f1 = f1_score(gt, pred, average='micro')
 
             #
             # Logging
             #
 
             if phase == LoopPhase.TRAIN:
+                training_step = len(data_loader) * epoch + batch_idx
+
                 # Log metrics
                 if config['enable_tensorboard']:
-                    writer.add_scalar('training_loss', loss.item(), epoch)
-                    writer.add_scalar('training_micro_f1', micro_f1, epoch)
+                    writer.add_scalar('training_loss', loss.item(), training_step)
+                    writer.add_scalar('training_micro_f1', micro_f1, training_step)
+
+                # Log to console
+                if config['console_log_freq'] is not None:
+                    print(f'GAT training: time elapsed= {(time.time() - time_start):.2f} [s] | epoch={epoch + 1} | b_idx={batch_idx + 1} | train micro-F1={micro_f1}')
 
                 # Save model checkpoint
-                if config['checkpoint_freq'] is not None and (epoch + 1) % config['checkpoint_freq'] == 0:
-                    ckpt_model_name = f"gat_ckpt_epoch_{epoch + 1}.pth"
-                    config['test_micro_f1'] = -1
+                if config['checkpoint_freq'] is not None and (epoch + 1) % config['checkpoint_freq'] == 0 and batch_idx == 0:
+                    ckpt_model_name = f"gat_ppi_ckpt_epoch_{epoch + 1}.pth"
+                    config['test_perf'] = -1
                     torch.save(utils.get_training_state(config, gat), os.path.join(CHECKPOINTS_PATH, ckpt_model_name))
 
             elif phase == LoopPhase.VAL:
+                val_step = len(data_loader) * epoch + batch_idx
+
                 # Log metrics
                 if config['enable_tensorboard']:
-                    writer.add_scalar('val_loss', loss.item(), epoch)
-                    writer.add_scalar('val_micro_f1', micro_f1, epoch)
+                    writer.add_scalar('val_loss', loss.item(), val_step)
+                    writer.add_scalar('val_micro_f1', micro_f1, val_step)
 
                 # Log to console
-                if config['console_log_freq'] is not None and epoch % config['console_log_freq'] == 0:
+                if config['console_log_freq'] is not None and epoch % config['console_log_freq'] == 0 and batch_idx == 0:
                     print(f'GAT training: time elapsed= {(time.time() - time_start):.2f} [s] | epoch={epoch + 1} | val micro-F1={micro_f1}')
 
                 # The "patience" logic - should we break out from the training loop? If either validation micro-F1
                 # keeps going up or the val loss keeps going down we won't stop
-                if micro_f1 > BEST_VAL_ACC or loss.item() < BEST_VAL_LOSS:
-                    BEST_VAL_ACC = max(micro_f1, BEST_VAL_ACC)  # keep track of the best validation micro_f1 so far
+                if micro_f1 > BEST_VAL_PERF or loss.item() < BEST_VAL_LOSS:
+                    BEST_VAL_PERF = max(micro_f1, BEST_VAL_PERF)  # keep track of the best validation micro_f1 so far
                     BEST_VAL_LOSS = min(loss.item(), BEST_VAL_LOSS)
                     PATIENCE_CNT = 0  # reset the counter every time we encounter new best micro_f1
                 else:
@@ -103,7 +113,7 @@ def get_main_loop(config, gat, sigmoid_cross_entropy_loss, optimizer, patience_p
 
 
 def train_gat(config):
-    global BEST_VAL_ACC, BEST_VAL_LOSS
+    global BEST_VAL_PERF, BEST_VAL_LOSS
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
@@ -111,7 +121,6 @@ def train_gat(config):
     data_loader_train, data_loader_val, data_loader_test = load_graph_data(config, device)
 
     # Step 2: prepare the model
-    # todo: test that dimensions are as reported in the paper
     gat = GAT(
         num_of_layers=config['num_of_layers'],
         num_heads_per_layer=config['num_heads_per_layer'],
@@ -136,7 +145,7 @@ def train_gat(config):
         config['patience_period'],
         time.time())
 
-    BEST_VAL_ACC, BEST_VAL_LOSS, PATIENCE_CNT = [0, 0, 0]  # reset vars used for early stopping
+    BEST_VAL_PERF, BEST_VAL_LOSS, PATIENCE_CNT = [0, 0, 0]  # reset vars used for early stopping
 
     # Step 4: Start the training procedure
     for epoch in range(config['num_of_epochs']):
@@ -153,13 +162,13 @@ def train_gat(config):
 
     # Step 5: Potentially test your model
     # Don't overfit to the test dataset - only when you've fine-tuned your model on the validation dataset should you
-    # report your final loss and accuracy on the test dataset. Friends don't let friends overfit to the test data. <3
+    # report your final loss and micro-F1 on the test dataset. Friends don't let friends overfit to the test data. <3
     if config['should_test']:
-        test_acc = main_loop(phase=LoopPhase.TEST, data_loader=data_loader_test)
-        config['test_acc'] = test_acc
-        print(f'Test accuracy = {test_acc}')
+        micro_f1 = main_loop(phase=LoopPhase.TEST, data_loader=data_loader_test)
+        config['test_perf'] = micro_f1
+        print(f'Test micro-F1 = {micro_f1}')
     else:
-        config['test_acc'] = -1
+        config['test_perf'] = -1
 
     # Save the latest GAT in the binaries directory
     torch.save(utils.get_training_state(config, gat), os.path.join(BINARIES_PATH, utils.get_available_binary_name()))

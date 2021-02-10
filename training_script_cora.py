@@ -42,7 +42,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
             return test_labels
 
     def main_loop(phase, epoch=0):
-        global BEST_VAL_ACC, BEST_VAL_LOSS, PATIENCE_CNT, writer
+        global BEST_VAL_PERF, BEST_VAL_LOSS, PATIENCE_CNT, writer
 
         # Certain modules behave differently depending on whether we're training the model or not.
         # e.g. nn.Dropout - we only want to drop model weights during the training.
@@ -91,7 +91,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
             # Save model checkpoint
             if config['checkpoint_freq'] is not None and (epoch + 1) % config['checkpoint_freq'] == 0:
                 ckpt_model_name = f"gat_ckpt_epoch_{epoch + 1}.pth"
-                config['test_acc'] = -1
+                config['test_perf'] = -1
                 torch.save(utils.get_training_state(config, gat), os.path.join(CHECKPOINTS_PATH, ckpt_model_name))
 
         elif phase == LoopPhase.VAL:
@@ -106,8 +106,8 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
 
             # The "patience" logic - should we break out from the training loop? If either validation acc keeps going up
             # or the val loss keeps going down we won't stop
-            if accuracy > BEST_VAL_ACC or loss.item() < BEST_VAL_LOSS:
-                BEST_VAL_ACC = max(accuracy, BEST_VAL_ACC)  # keep track of the best validation accuracy so far
+            if accuracy > BEST_VAL_PERF or loss.item() < BEST_VAL_LOSS:
+                BEST_VAL_PERF = max(accuracy, BEST_VAL_PERF)  # keep track of the best validation accuracy so far
                 BEST_VAL_LOSS = min(loss.item(), BEST_VAL_LOSS)
                 PATIENCE_CNT = 0  # reset the counter every time we encounter new best accuracy
             else:
@@ -123,7 +123,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
 
 
 def train_gat(config):
-    global BEST_VAL_ACC, BEST_VAL_LOSS
+    global BEST_VAL_PERF, BEST_VAL_LOSS
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
@@ -161,7 +161,7 @@ def train_gat(config):
         config['patience_period'],
         time.time())
 
-    BEST_VAL_ACC, BEST_VAL_LOSS, PATIENCE_CNT = [0, 0, 0]  # reset vars used for early stopping
+    BEST_VAL_PERF, BEST_VAL_LOSS, PATIENCE_CNT = [0, 0, 0]  # reset vars used for early stopping
 
     # Step 4: Start the training procedure
     for epoch in range(config['num_of_epochs']):
@@ -181,10 +181,10 @@ def train_gat(config):
     # report your final loss and accuracy on the test dataset. Friends don't let friends overfit to the test data. <3
     if config['should_test']:
         test_acc = main_loop(phase=LoopPhase.TEST)
-        config['test_acc'] = test_acc
+        config['test_perf'] = test_acc
         print(f'Test accuracy = {test_acc}')
     else:
-        config['test_acc'] = -1
+        config['test_perf'] = -1
 
     # Save the latest GAT in the binaries directory
     torch.save(utils.get_training_state(config, gat), os.path.join(BINARIES_PATH, utils.get_available_binary_name()))

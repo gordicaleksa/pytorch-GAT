@@ -16,7 +16,7 @@ import utils.utils as utils
 # Simple decorator function so that I don't have to pass arguments that don't change from epoch to epoch
 def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, node_labels, edge_index, train_indices, val_indices, test_indices, patience_period, time_start):
 
-    node_dim = 0  # this will likely change as soon as I add an inductive example (Cora is transductive)
+    node_dim = 0  # node axis
 
     train_labels = node_labels.index_select(node_dim, train_indices)
     val_labels = node_labels.index_select(node_dim, val_indices)

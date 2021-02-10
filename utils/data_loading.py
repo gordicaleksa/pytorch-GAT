@@ -110,8 +110,8 @@ def load_graph_data(training_config, device):
 
     elif dataset_name == DatasetType.PPI.name.lower():
 
-        # Instead of checking it in, I'd rather download it on-the-fly the first time it's needed (lazy execution ^^)
-        if not os.path.exists(PPI_PATH):  # optionally download the first time this is ran
+        # Instead of checking PPI in, I'd rather download it on-the-fly the first time it's needed (lazy execution ^^)
+        if not os.path.exists(PPI_PATH):  # download the first time this is ran
             os.makedirs(PPI_PATH)
 
             # Step 1: Download the ppi.zip (contains the PPI dataset)
@@ -127,13 +127,13 @@ def load_graph_data(training_config, device):
             os.remove(zip_tmp_path)
             print(f'Removing tmp file {zip_tmp_path}.')
 
-        # Collect train/val/test data here
+        # Collect train/val/test graph data here
         edge_index_list = []
         node_features_list = []
         node_labels_list = []
 
         # Dynamically determine how many graphs we have per split (avoid using constants when possible)
-        num_graphs_per_split = [0]
+        num_graphs_per_split_cumulative = [0]
 
         for split in ['train', 'valid', 'test']:
             # Graph topology stored in a special nodes-links NetworkX format
@@ -142,9 +142,9 @@ def load_graph_data(training_config, device):
             # The reason I use a NetworkX's directed graph is because we need to explicitly model both directions
             # because of the edge index and the way the GAT's implementation #3 works
             collection_of_graphs = nx.DiGraph(json_graph.node_link_graph(nodes_links_dict))
-            # For each node in the above collection ids specify to which graph the node belongs to
+            # For each node in the above collection, ids specify to which graph the node belongs to
             graph_ids = np.load(os.path.join(PPI_PATH, F'{split}_graph_id.npy'))
-            num_graphs_per_split.append(num_graphs_per_split[-1] + len(np.unique(graph_ids)))
+            num_graphs_per_split_cumulative.append(num_graphs_per_split_cumulative[-1] + len(np.unique(graph_ids)))
 
             # PPI has 50 features per node, it's a combination of positional gene sets, motif gene sets,
             # and immunological signatures - you can treat it as a black box (I personally have a rough understanding)
@@ -160,7 +160,8 @@ def load_graph_data(training_config, device):
                 mask = graph_ids == graph_id  # find the nodes which belong to the current graph
                 graph_node_ids = np.asarray(mask).nonzero()[0]
                 graph = collection_of_graphs.subgraph(graph_node_ids)  # returns the induced subgraph over these nodes
-                print(f'{split} graph {graph_id}, has {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges.')
+                print(f'Loading {split} graph {graph_id}. '
+                      f'It has {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges.')
 
                 # shape = (2, E) - where E is the number of edges in the graph
                 # Note: leaving the tensors on CPU I'll load them to GPU in the training loop on-the-fly as VRAM
@@ -181,25 +182,25 @@ def load_graph_data(training_config, device):
         # Prepare graph data loaders
         #
         data_loader_train = GraphDataLoader(
-            edge_index_list[num_graphs_per_split[0]:num_graphs_per_split[1]],
-            node_features_list[num_graphs_per_split[0]:num_graphs_per_split[1]],
-            node_labels_list[num_graphs_per_split[0]:num_graphs_per_split[1]],
+            edge_index_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
+            node_features_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
+            node_labels_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
             batch_size=training_config['batch_size'],
             shuffle=True
         )
 
         data_loader_val = GraphDataLoader(
-            edge_index_list[num_graphs_per_split[1]:num_graphs_per_split[2]],
-            node_features_list[num_graphs_per_split[1]:num_graphs_per_split[2]],
-            node_labels_list[num_graphs_per_split[1]:num_graphs_per_split[2]],
+            edge_index_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
+            node_features_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
+            node_labels_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
             batch_size=training_config['batch_size'],
             shuffle=False  # no need to shuffle the validation and test graphs
         )
 
         data_loader_test = GraphDataLoader(
-            edge_index_list[num_graphs_per_split[2]:num_graphs_per_split[3]],
-            node_features_list[num_graphs_per_split[2]:num_graphs_per_split[3]],
-            node_labels_list[num_graphs_per_split[2]:num_graphs_per_split[3]],
+            edge_index_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
+            node_features_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
+            node_labels_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
             batch_size=training_config['batch_size'],
             shuffle=False
         )

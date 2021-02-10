@@ -176,17 +176,16 @@ class GATLayerImp3(GATLayer):
 
     But, it's hopefully much more readable! (and of similar performance)
 
-    If you're still having problems understanding this one DM me and I'll try to create an accompanying blog or video
-    going through this code.
+    It's suitable for both transductive and inductive settings. In the inductive setting we just merge the graphs
+    into a single graph with multiple components and this layer is agnostic to that fact! <3
 
     """
 
     src_nodes_dim = 0  # position of source nodes in edge index
     trg_nodes_dim = 1  # position of target nodes in edge index
 
-    # These may change in the inductive setting - leaving it like this for now (not future proof)
-    nodes_dim = 0      # node dimension
-    head_dim = 1       # attention head dim
+    nodes_dim = 0      # node dimension/axis
+    head_dim = 1       # attention head dimension/axis
 
     def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
                  dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
@@ -353,7 +352,9 @@ class GATLayerImp2(GATLayer):
 
         It's conceptually simpler than implementation #3 but computationally much less efficient.
 
-        Note: this is the naive implementation not the sparse one.
+        Note: this is the naive implementation not the sparse one and it's only suitable for a transductive setting.
+        It would be fairly easy to make it work in the inductive setting as well but the purpose of this layer
+        is more educational since it's way less efficient than implementation 3.
 
     """
 
@@ -426,6 +427,12 @@ class GATLayerImp2(GATLayer):
 
 
 class GATLayerImp1(GATLayer):
+    """
+        This implementation is only suitable for a transductive setting.
+        It would be fairly easy to make it work in the inductive setting as well but the purpose of this layer
+        is more educational since it's way less efficient than implementation 3.
+
+    """
     def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
                  dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
 

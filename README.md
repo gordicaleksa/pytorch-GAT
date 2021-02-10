@@ -2,6 +2,8 @@
 This repo contains a PyTorch implementation of the original GAT paper (:link: [Veličković et al.](https://arxiv.org/abs/1710.10903)). <br/>
 It's aimed at making it **easy to start playing and learning** about GAT and GNNs in general. <br/>
 
+**Important note: PPI integration in progress, it'll be ready in a couple of days!** :heart:
+
 ## Table of Contents
 * [What are graph neural networks and GAT?](#what-are-gnns)
 * [Visualizations (Cora, attention, embeddings)](#cora-visualized)
@@ -154,7 +156,7 @@ You just need to link the Python environment you created in the [setup](#setup) 
 ### Training GAT
 
 Everything needed to train GAT on Cora is already setup. To run it (from console) just call: <br/>
-`python training_script.py`
+`python training_script_cora.py`
 
 You could also potentially:
 * add the `--should_visualize` - to visualize your graph data

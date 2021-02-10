@@ -124,7 +124,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
     return main_loop  # return the decorated function
 
 
-def train_gat(config):
+def train_gat_cora(config):
     global BEST_VAL_PERF, BEST_VAL_LOSS
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
@@ -240,4 +240,4 @@ def get_training_args():
 if __name__ == '__main__':
 
     # Train the graph attention network (GAT)
-    train_gat(get_training_args())
+    train_gat_cora(get_training_args())

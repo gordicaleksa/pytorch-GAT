@@ -17,7 +17,7 @@ from utils.constants import CORA_PATH, BINARIES_PATH, DatasetType, LayerType, DA
 from utils.visualizations import draw_entropy_histogram
 from models.definitions.GAT import GAT
 from utils.utils import print_model_metadata, convert_adj_to_edge_index, name_to_layer_type
-from training_script import train_gat, get_training_args
+from training_script_cora import train_gat_cora, get_training_args
 
 
 def profile_sparse_matrix_formats(node_features_csr):

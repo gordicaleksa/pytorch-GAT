@@ -47,6 +47,7 @@ from networkx.readwrite import json_graph
 import scipy.sparse as sp
 import torch
 from torch.hub import download_url_to_file
+from torch.utils.data import DataLoader, Dataset
 
 
 from utils.constants import *
@@ -131,13 +132,19 @@ def load_graph_data(training_config, device):
         node_features_list = []
         node_labels_list = []
 
+        # Dynamically determine how many graphs we have per split (avoid using constants when possible)
+        num_graphs_per_split = [0]
+
         for split in ['train', 'valid', 'test']:
             # Graph topology stored in a special nodes-links NetworkX format
             nodes_links_dict = json_read(os.path.join(PPI_PATH, f'{split}_graph.json'))
-            # PPI contains graphs with self edges - 20 train graphs, 2 validation graphs and 2 test graphs
+            # PPI contains undirected graphs with self edges - 20 train graphs, 2 validation graphs and 2 test graphs
+            # The reason I use a NetworkX's directed graph is because we need to explicitly model both directions
+            # because of the edge index and the way the GAT's implementation #3 works
             collection_of_graphs = nx.DiGraph(json_graph.node_link_graph(nodes_links_dict))
             # For each node in the above collection ids specify to which graph the node belongs to
             graph_ids = np.load(os.path.join(PPI_PATH, F'{split}_graph_id.npy'))
+            num_graphs_per_split.append(num_graphs_per_split[-1] + len(np.unique(graph_ids)))
 
             # PPI has 50 features per node, it's a combination of positional gene sets, motif gene sets,
             # and immunological signatures - you can treat it as a black box (I personally have a rough understanding)
@@ -156,7 +163,10 @@ def load_graph_data(training_config, device):
                 print(f'{split} graph {graph_id}, has {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges.')
 
                 # shape = (2, E) - where E is the number of edges in the graph
+                # Note: leaving the tensors on CPU I'll load them to GPU in the training loop on-the-fly as VRAM
+                # is a scarcer resource than CPU's RAM.
                 edge_index = torch.tensor(list(graph.edges), dtype=torch.long).transpose(0, 1).contiguous()
+                edge_index = edge_index - edge_index.min()  # bring the edges to [0, num_of_nodes] range
                 edge_index_list.append(edge_index)
                 # shape = (N, 50) - where N is the number of edges in the graph
                 node_features_list.append(torch.tensor(node_features[mask]))
@@ -164,16 +174,84 @@ def load_graph_data(training_config, device):
                 node_labels_list.append(torch.tensor(node_labels[mask]))
 
                 if should_visualize:
-                    # igraph expects the edges to be pointing to nodes from the [0, num_of_nodes] ids, so normalizing
-                    # to that range otherwise some graphs would be pointing from offset to offset + num_of_nodes,
-                    # where offset is the sum of the nodes that came before this graph.
-                    edge_index_normalized = (edge_index - edge_index.min()).numpy()
-                    plot_in_out_degree_distributions(edge_index_normalized, graph.number_of_nodes(), dataset_name)
-                    visualize_graph(edge_index_normalized, node_labels[mask], dataset_name)
+                    plot_in_out_degree_distributions(edge_index.numpy(), graph.number_of_nodes(), dataset_name)
+                    visualize_graph(edge_index.numpy(), node_labels[mask], dataset_name)
 
-        return edge_index_list, node_features_list, node_labels_list
+        #
+        # Prepare graph data loaders
+        #
+        data_loader_train = GraphDataLoader(
+            edge_index_list[num_graphs_per_split[0]:num_graphs_per_split[1]],
+            node_features_list[num_graphs_per_split[0]:num_graphs_per_split[1]],
+            node_labels_list[num_graphs_per_split[0]:num_graphs_per_split[1]],
+            batch_size=training_config['batch_size'],
+            shuffle=True
+        )
+
+        data_loader_val = GraphDataLoader(
+            edge_index_list[num_graphs_per_split[1]:num_graphs_per_split[2]],
+            node_features_list[num_graphs_per_split[1]:num_graphs_per_split[2]],
+            node_labels_list[num_graphs_per_split[1]:num_graphs_per_split[2]],
+            batch_size=1,
+            shuffle=False  # no need to shuffle the validation and test graphs
+        )
+
+        data_loader_test = GraphDataLoader(
+            edge_index_list[num_graphs_per_split[2]:num_graphs_per_split[3]],
+            node_features_list[num_graphs_per_split[2]:num_graphs_per_split[3]],
+            node_labels_list[num_graphs_per_split[2]:num_graphs_per_split[3]],
+            batch_size=1,
+            shuffle=False
+        )
+
+        return data_loader_train, data_loader_val, data_loader_test
     else:
         raise Exception(f'{dataset_name} not yet supported.')
+
+
+# When dealing with batches it's always a good idea to inherit from PyTorch's provided classes (Dataset/DataLoader)
+class GraphDataLoader(DataLoader):
+
+    def __init__(self, edge_index_list, node_features_list, node_labels_list, batch_size=1, shuffle=False):
+        graph_dataset = GraphDataset(edge_index_list, node_features_list, node_labels_list)
+        super().__init__(graph_dataset, batch_size, shuffle, collate_fn=custom_collate_fn)
+
+
+class GraphDataset(Dataset):
+    def __init__(self, edge_index_list, node_features_list, node_labels_list):
+        self.edge_index_list = edge_index_list
+        self.node_features_list = node_features_list
+        self.node_labels_list = node_labels_list
+
+    # 2 interface functions that need to be defined are len and getitem so that DataLoader can do it's magic
+    def __len__(self):
+        return len(self.edge_index_list)
+
+    def __getitem__(self, idx):
+        return self.edge_index_list[idx], self.node_features_list[idx], self.node_labels_list[idx]
+
+
+def custom_collate_fn(batch):
+    # The main idea here is to take the subgraphs i.e. multiple graphs from PPI as defined by the batch size
+    # and merge them into a single graph with multiple components
+    edge_index_list = []
+    node_features_list = []
+    node_labels_list = []
+    num_nodes_seen = 0
+
+    for edge_index_features_labels_tuple in batch:
+        edge_index = edge_index_features_labels_tuple[0]
+        edge_index_list.append(edge_index + num_nodes_seen)  # very important translate the range of this component
+        num_nodes_seen += len(edge_index_features_labels_tuple[1])  # update the number of nodes we've seen so far
+
+        node_features_list.append(edge_index_features_labels_tuple[1])
+        node_labels_list.append(edge_index_features_labels_tuple[2])
+
+    edge_index = torch.cat(edge_index_list, 1)
+    node_features = torch.cat(node_features_list, 0)
+    node_labels = torch.cat(node_labels_list, 0)
+
+    return edge_index, node_features, node_labels
 
 
 def json_read(path):

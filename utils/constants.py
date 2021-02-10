@@ -81,7 +81,10 @@ cora_label_to_color_map = {0: "red", 1: "blue", 2: "green", 3: "orange", 4: "yel
 #
 
 PPI_PATH = os.path.join(DATA_DIR_PATH, 'ppi')
-PPI_URL = 'https://data.dgl.ai/dataset/ppi.zip'
+PPI_URL = 'https://data.dgl.ai/dataset/ppi.zip'  # preprocessed PPI data from Deep Graph Library
+
+PPI_NUM_INPUT_FEATURES = 50
+PPI_NUM_CLASSES = 121
 
 
 

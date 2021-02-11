@@ -12,7 +12,7 @@ It's aimed at making it **easy to start playing and learning** about GAT and GNN
     * [Profiling GAT](#profiling-gat)
     * [Visualization tools](#visualization-tools)
 * [Hardware requirements](#hardware-requirements)
-* [Learning material](#video-learning-material)
+* [Learning material](#learning-material)
     
 ## What are GNNs?
 
@@ -176,6 +176,12 @@ You just need to link the Python environment you created in the [setup](#setup) 
 
 ### Training GAT
 
+FYI, my GAT implementation achieves the published results:
+* On Cora I get the `82-83%` accuracy on test nodes
+* On PPI I achieved the `0.973` micro-F1 score (and actually even higher)
+
+---
+
 Everything needed to train GAT on Cora is already setup. To run it (from console) just call: <br/>
 `python training_script_cora.py`
 
@@ -191,6 +197,10 @@ The script will:
 * Dump the final *.pth model into `models/binaries/`
 * Save metrics into `runs/`, just run `tensorboard --logdir=runs` from your Anaconda to visualize it
 * Periodically write some training metadata to the console
+
+Same goes for training on PPI just run `python training_script_ppi.py`. PPI is much more GPU-hungry so if
+you don't have a strong GPU with at least 8 GBs you'll need to add the `--force_cpu` flag to train GAT on CPU.
+You can alternatively try reducing the batch size to 1 or making the model slimmer.
 
 You can visualize the metrics during the training, by calling `tensorboard --logdir=runs` from your console
 and pasting the `http://localhost:6006/` URL into your browser:
@@ -209,8 +219,6 @@ Having said that most of the fun actually lies in the `playground.py` script.
 I've added 3 GAT implementations - some are conceptually easier to understand some are more efficient.
 The most interesting and hardest one to understand is implementation 3.
 Implementation 1 and implementation 2 differ in subtle details but basically do the same thing.
-
-All implementations achieve the official GAT's result on Cora -> `82-83%` accuracy on test nodes.
 
 **Advice on how to approach the code:**
 * Understand the implementation #2 first
@@ -267,7 +275,7 @@ If you want to visualize Cora just uncomment `visualize_graph_dataset()` and you
 
 ## Hardware requirements
 
-GAT doesn't require super strong HW, especially not if you just want to play with Cora. With 2+ GBs GPU you're good to go.
+HW requirements are highly dependent on the graph data you'll use. If you just want to play with `Cora`, you're good to go with a 2+ GBs GPU.
 
 It takes (on Cora citation network):
 * ~10 seconds to train GAT on my RTX 2080 GPU
@@ -276,19 +284,22 @@ It takes (on Cora citation network):
 
 Compare this to hardware needed even for the smallest of [transformers](https://github.com/gordicaleksa/pytorch-original-transformer#hardware-requirements)!
 
+On the other hand the `PPI` dataset is much more GPU-hungry. You'll need a GPU with 8+ GBs of VRAM, or you
+can reduce the batch size to 1 and make the model "slimmer" and thus try to reduce the VRAM consumption.
+
 ### Future todos:
 
-* Figure out why are attention coefficients on PPI 0 (for the second and third layer)
+* Figure out why are the `attention coefficients equal to 0` for the PPI dataset (second and third layer)
 * Potentially add an implementation leveraging PyTorch's `sparse API`
 
 If you have an idea of how to implement GAT using PyTorch's sparse API please feel free to submit a PR.
 I personally had difficulties with their API, it's in beta, and it's questionable whether it's at all possible
 to make an implementation as efficient as my implementation 3 using it.
 
-Secondly, I'm still not sure why GAT is achieving reported results on PPI while there are some obvious numeric
+Secondly, I'm still not sure why is GAT achieving reported results on PPI while there are some obvious numeric
 problems in deeper layers as manifested by all attention coefficients being equal to 0.
 
-## Video learning material
+## Learning material
 
 If you're having difficulties understanding GAT I did an in-depth overview of the paper [in this video:](https://www.youtube.com/watch?v=uFLeKkXWq2c&ab_channel=TheAIEpiphany)
 
@@ -296,6 +307,9 @@ If you're having difficulties understanding GAT I did an in-depth overview of th
 <a href="https://www.youtube.com/watch?v=uFLeKkXWq2c" target="_blank"><img src="https://img.youtube.com/vi/uFLeKkXWq2c/0.jpg" 
 alt="The GAT paper explained" width="480" height="360" border="10" /></a>
 </p>
+
+I also made a [walk-through video](https://www.youtube.com/watch?v=364hpoRB4PQ) of this repo here (explaining potential pain points), 
+and a blog for [getting started with Graph ML](https://gordicaleksa.medium.com/how-to-get-started-with-graph-machine-learning-afa53f6f963a) in general! :heart:
 
 I have some more videos which could further help you understand GNNs:
 * [My overview of the GCN paper](https://www.youtube.com/watch?v=VyIOfIglrUM)

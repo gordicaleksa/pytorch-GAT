@@ -2,8 +2,6 @@
 This repo contains a PyTorch implementation of the original GAT paper (:link: [Veličković et al.](https://arxiv.org/abs/1710.10903)). <br/>
 It's aimed at making it **easy to start playing and learning** about GAT and GNNs in general. <br/>
 
-**Important note: PPI integration in progress, it'll be ready in a couple of days!** :heart:
-
 ## Table of Contents
 * [What are graph neural networks and GAT?](#what-are-gnns)
 * [Visualizations (Cora, attention, embeddings)](#cora-visualized)
@@ -49,7 +47,7 @@ I've added a utility for visualizing Cora and doing basic network analysis. Here
 <img src="data/readme_pics/cora_graph_jupyter.PNG"/>
 </p>
 
-Node size corresponds to it's degree (i.e. the number of in/out going edges). Edge thickness roughly corresponds
+Node size corresponds to its degree (i.e. the number of in/out going edges). Edge thickness roughly corresponds
 to how "popular" or "connected" that edge is (**edge betweennesses** is the nerdy term [check out the code](https://github.com/gordicaleksa/pytorch-GAT/blob/main/utils/visualizations.py#L104).)
 
 And here is a plot showing the degree distribution on Cora:
@@ -84,6 +82,24 @@ Similar rules hold for smaller neighborhoods. Also notice the self edges:
 <img src="data/readme_pics/attention4.jpg" width="400"/>
 </p>
 
+On the other hand PPI is learning much more interesting attention patterns:
+
+<p align="left">
+<img src="data/readme_pics/neighborhood_attention_ppi/a3.jpg" width="400"/>
+<img src="data/readme_pics/neighborhood_attention_ppi/a2.jpg" width="400"/>
+</p>
+
+On the left we can see that 6 neighbors are receiving a non-negligible amount of attention and on the right we can
+see that all of the attention is focused onto a single neighbor.
+
+Finally 2 more interesting patterns - a strong self edge on the left and on the right we can see that a single neighbor
+is receiving a bulk of attention whereas the rest is equally distributed across the rest of the neighborhood:
+
+<p align="left">
+<img src="data/readme_pics/neighborhood_attention_ppi/a4.jpg" width="400"/>
+<img src="data/readme_pics/neighborhood_attention_ppi/a1.jpg" width="400"/>
+</p>
+
 ## Entropy histograms
 
 Another way to understand that GAT isn't learning interesting attention patterns on Cora (i.e. that it's learning const attention)
@@ -100,7 +116,10 @@ and you can see in light blue the learned distributions - they are exactly the s
 
 I've plotted only a single attention head from the first layer (out of 8) because they're all the same!
 
-**Note: I'll soon add an additional graph dataset (PPI probably).**
+On the other hand PPI is learning much more interesting attention patterns:
+
+<p align="left">
+<img src="data/readme_pics/entropy_histograms_ppi/layer_0_head_0.jpg" width="400"/>
 
 ## Analyzing Cora's embedding space (t-SNE)
 
@@ -230,8 +249,8 @@ And you'll get crazy visualizations like these ones (`VisualizationType.ATTENTIO
 
 On the left you can see the node with the highest degree in the whole Cora dataset.
 
-If you're wondering about why these look like a circle it's because I've used the `layout_reingold_tilford_circular` layout 
-which is particularly well suited for tree like graphs (since we're visualizing a node and it's neighbors this
+If you're wondering about why these look like a circle, it's because I've used the `layout_reingold_tilford_circular` layout 
+which is particularly well suited for tree like graphs (since we're visualizing a node and its neighbors this
 subgraph is effectively a `m-ary` tree).
 
 But you can also use different drawing algorithms like `kamada kawai` (on the right), etc.
@@ -257,15 +276,15 @@ Compare this to hardware needed even for the smallest of [transformers](https://
 
 ### Future todos:
 
-* Add an inductive example
+* Figure out why are attention coefficients on PPI 0 (for the second and third layer)
 * Potentially add an implementation leveraging PyTorch's `sparse API`
-
-The repo already has everything it needs for learning purposes, these are just the bonus points. I've tested everything
-from environment setup, to graph visualizations, etc.
 
 If you have an idea of how to implement GAT using PyTorch's sparse API please feel free to submit a PR.
 I personally had difficulties with their API, it's in beta, and it's questionable whether it's at all possible
 to make an implementation as efficient as my implementation 3 using it.
+
+Secondly, I'm still not sure why GAT is achieving reported results on PPI while there are some obvious numeric
+problems in deeper layers as manifested by all attention coefficients being equal to 0.
 
 ## Video learning material
 

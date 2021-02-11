@@ -85,19 +85,19 @@ Similar rules hold for smaller neighborhoods. Also notice the self edges:
 On the other hand PPI is learning much more interesting attention patterns:
 
 <p align="left">
-<img src="data/readme_pics/neighborhood_attention_ppi/a3.jpg" width="400"/>
-<img src="data/readme_pics/neighborhood_attention_ppi/a2.jpg" width="400"/>
+<img src="data/readme_pics/neighborhood_attention_ppi/3.jpg" width="400"/>
+<img src="data/readme_pics/neighborhood_attention_ppi/2.jpg" width="400"/>
 </p>
 
 On the left we can see that 6 neighbors are receiving a non-negligible amount of attention and on the right we can
-see that all of the attention is focused onto a single neighbor.
+see that all of the attention is **focused onto a single neighbor**.
 
-Finally 2 more interesting patterns - a strong self edge on the left and on the right we can see that a single neighbor
-is receiving a bulk of attention whereas the rest is equally distributed across the rest of the neighborhood:
+Finally 2 more interesting patterns - a **strong self edge** on the left and on the right we can see that a single neighbor
+is receiving a bulk of attention whereas the rest is **equally distributed** across the rest of the neighborhood:
 
 <p align="left">
-<img src="data/readme_pics/neighborhood_attention_ppi/a4.jpg" width="400"/>
-<img src="data/readme_pics/neighborhood_attention_ppi/a1.jpg" width="400"/>
+<img src="data/readme_pics/neighborhood_attention_ppi/4.jpg" width="400"/>
+<img src="data/readme_pics/neighborhood_attention_ppi/1.jpg" width="400"/>
 </p>
 
 ## Entropy histograms
@@ -120,6 +120,8 @@ On the other hand PPI is learning much more interesting attention patterns:
 
 <p align="left">
 <img src="data/readme_pics/entropy_histograms_ppi/layer_0_head_0.jpg" width="400"/>
+
+As expected, the uniform distribution entropy histogram lies to the right since uniform distributions have the highest entropy.
 
 ## Analyzing Cora's embedding space (t-SNE)
 

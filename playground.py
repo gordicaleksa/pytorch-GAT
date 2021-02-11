@@ -173,10 +173,9 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
 
     """
     # I tried visualizing PPI's 2D embeddings without any label/color information but it's not informative
-    # I'm working on fixing some attention/entropy bug for PPI so for the time being please just use Cora
-    if dataset_name == DatasetType.PPI.name:
-        print("PPI visualization not supported at the moment")
-        exit(0)
+    if dataset_name == DatasetType.PPI.name and visualization_type == VisualizationType.EMBEDDINGS:
+        print(f"{dataset_name} is a multi-label dataset - embeddings are thus not supported.")
+        return
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
@@ -240,7 +239,11 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
         # (2x this actually as we add nodes with highest degree + random nodes)
         num_nodes_of_interest = 4  # 4 is an arbitrary number you can play with these numbers
         head_to_visualize = 0  # plot attention from this multi-head attention's head
-        gat_layer_id = -1  # plot attention from this GAT layer (the last one by default)
+        gat_layer_id = 0  # plot attention from this GAT layer
+
+        if dataset_name == DatasetType.PPI.name and gat_layer_id != 0:
+            print(f'Attention visualization for {dataset_name} is only available for the first layer.')
+            return
 
         # Build up the complete graph
         # node_features shape = (N, FIN), where N is the number of nodes and FIN number of input features
@@ -262,7 +265,7 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
 
         for target_node_id in nodes_of_interest_ids:
             # Step 1: Find the neighboring nodes to the target node
-            # Note: self edge for CORA is included so the target node is it's own neighbor (Alexandro yo soy tu madre)
+            # Note: self edges are included so the target node is it's own neighbor (Alexandro yo soy tu madre)
             src_nodes_indices = torch.eq(target_node_ids, target_node_id)
             source_node_ids = source_nodes[src_nodes_indices].cpu().numpy()
             size_of_neighborhood = len(source_node_ids)
@@ -275,6 +278,7 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
             all_attention_weights = gat.gat_net[gat_layer_id].attention_weights.squeeze(dim=-1)
             attention_weights = all_attention_weights[src_nodes_indices, head_to_visualize].cpu().numpy()
             # This part shows that for CORA what GAT learns is pretty much constant attention weights! Like in GCN!
+            # On the other hand PPI's attention pattern is much less uniform.
             print(f'Max attention weight = {np.max(attention_weights)} and min = {np.min(attention_weights)}')
             attention_weights /= np.max(attention_weights)  # rescale the biggest weight to 1 for nicer plotting
 
@@ -323,8 +327,8 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
     elif visualization_type == VisualizationType.ENTROPY:
         num_heads_per_layer = [layer.num_of_heads for layer in gat.gat_net]
         num_layers = len(num_heads_per_layer)
-
         num_of_nodes = len(node_features)
+
         target_node_ids = edge_index[1].cpu().numpy()
 
         # For every GAT layer and for every GAT attention head plot the entropy histogram
@@ -332,6 +336,12 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
             # Fetch the attention weights for edges (attention is logged during GAT's forward pass above)
             # attention shape = (N, NH, 1) -> (N, NH) - we just squeeze the last dim it's superfluous
             all_attention_weights = gat.gat_net[layer_id].attention_weights.squeeze(dim=-1).cpu().numpy()
+
+            # tmp fix for PPI there are some numerical problems and so most of attention coefficients are 0
+            # and thus we can't plot entropy histograms
+            if dataset_name == DatasetType.PPI.name and layer_id > 0:
+                print(f'Entropy histograms for {dataset_name} are available only for the first layer.')
+                break
 
             for head_id in range(num_heads_per_layer[layer_id]):
                 uniform_dist_entropy_list = []  # save the ideal uniform histogram as the reference
@@ -350,7 +360,7 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
                     neighborhood_entropy_list.append(entropy(neigborhood_attention, base=2))
                     uniform_dist_entropy_list.append(entropy(ideal_uniform_attention, base=2))
 
-                title = f'Cora entropy histogram layer={layer_id}, attention head={head_id}'
+                title = f'{dataset_name} entropy histogram layer={layer_id}, attention head={head_id}'
                 draw_entropy_histogram(uniform_dist_entropy_list, title, color='orange', uniform_distribution=True)
                 draw_entropy_histogram(neighborhood_entropy_list, title, color='dodgerblue')
 

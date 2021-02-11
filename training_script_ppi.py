@@ -220,14 +220,15 @@ def get_training_args():
     parser.add_argument("--checkpoint_freq", type=int, help="checkpoint model saving (epoch) freq (None for no logging)", default=5)
     args = parser.parse_args()
 
-    # Model architecture related
-    # todo: test how sensitive is the training to these
+    # I'm leaving the hyperparam values as reported in the paper, but I experimented a bit and the comments suggest
+    # how you can make GAT achieve an even higher micro-F1 or make it smaller
     gat_config = {
-        "num_of_layers": 3,  # GNNs, contrary to CNNs, are often shallow (it ultimately depends on the graph properties)
-        "num_heads_per_layer": [4, 4, 6],
-        "num_features_per_layer": [PPI_NUM_INPUT_FEATURES, 256, 256, PPI_NUM_CLASSES],
+        # GNNs, contrary to CNNs, are often shallow (it ultimately depends on the graph properties)
+        "num_of_layers": 3,  # PPI has got 42% of nodes with all 0 features - that's why 3 layers are useful
+        "num_heads_per_layer": [4, 4, 6],  # other values may give even better results from the reported ones
+        "num_features_per_layer": [PPI_NUM_INPUT_FEATURES, 256, 256, PPI_NUM_CLASSES],  # 64 would also give ~0.975 uF1!
         "add_skip_connection": True,  # skip connection is very important! (keep it otherwise micro-F1 is almost 0)
-        "bias": False,  # bias doesn't matter that much, setting to False to save some memory
+        "bias": True,  # bias doesn't matter that much
         "dropout": 0.0,  # dropout hurts the performance (best to keep it at 0)
         "layer_type": LayerType.IMP3  # the only implementation that supports the inductive setting
     }

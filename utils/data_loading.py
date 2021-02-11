@@ -142,6 +142,7 @@ def load_graph_data(training_config, device):
             # PPI has 50 features per node, it's a combination of positional gene sets, motif gene sets,
             # and immunological signatures - you can treat it as a black box (I personally have a rough understanding)
             # shape = (NS, 50) - where NS is the number of (N)odes in the training/val/test (S)plit
+            # Note: node features are already preprocessed
             node_features = np.load(os.path.join(PPI_PATH, f'{split}_feats.npy'))
 
             # PPI has 121 labels and each node can have multiple labels associated (gene ontology stuff)

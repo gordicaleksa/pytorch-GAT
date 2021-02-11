@@ -100,6 +100,9 @@ is receiving a bulk of attention whereas the rest is **equally distributed** acr
 <img src="data/readme_pics/neighborhood_attention_ppi/1.jpg" width="400"/>
 </p>
 
+**Important note:** all of the `PPI` visualizations are only possible for the first GAT layer. 
+For some reason the attention coefficients for the second and third layers are almost all 0s (even though [I achieved](#training-gat) the published results).
+
 ## Entropy histograms
 
 Another way to understand that GAT isn't learning interesting attention patterns on Cora (i.e. that it's learning const attention)
@@ -121,7 +124,7 @@ On the other hand PPI is learning much more interesting attention patterns:
 <p align="left">
 <img src="data/readme_pics/entropy_histograms_ppi/layer_0_head_0.jpg" width="400"/>
 
-As expected, the uniform distribution entropy histogram lies to the right since uniform distributions have the highest entropy.
+As expected, the uniform distribution entropy histogram lies to the right (orange) since uniform distributions have the highest entropy.
 
 ## Analyzing Cora's embedding space (t-SNE)
 
@@ -210,7 +213,7 @@ and pasting the `http://localhost:6006/` URL into your browser:
 <img src="data/readme_pics/val_acc.PNG" height="290"/>
 </p>
 
-*Note: Cora's train split seems to be much harder than the validation and test splits looking at the loss and accuracy metrics:*
+*Note: Cora's train split seems to be much harder than the validation and test splits looking at the loss and accuracy metrics.*
 
 Having said that most of the fun actually lies in the `playground.py` script.
 
@@ -308,7 +311,7 @@ If you're having difficulties understanding GAT I did an in-depth overview of th
 alt="The GAT paper explained" width="480" height="360" border="10" /></a>
 </p>
 
-I also made a [walk-through video](https://www.youtube.com/watch?v=364hpoRB4PQ) of this repo here (explaining potential pain points), 
+I also made a [walk-through video](https://www.youtube.com/watch?v=364hpoRB4PQ) of this repo here (focusing on the potential pain points), 
 and a blog for [getting started with Graph ML](https://gordicaleksa.medium.com/how-to-get-started-with-graph-machine-learning-afa53f6f963a) in general! :heart:
 
 I have some more videos which could further help you understand GNNs:

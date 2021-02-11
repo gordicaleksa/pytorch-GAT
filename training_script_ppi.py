@@ -32,7 +32,7 @@ def get_main_loop(config, gat, sigmoid_cross_entropy_loss, optimizer, patience_p
         # Iterate over batches of graph data (2 graphs per batch was used in the original paper for the PPI dataset)
         # We merge them into a single graph with 2 connected components, that's the main idea. After that
         # the implementation #3 is agnostic to the fact that those are multiple and not a single graph!
-        for batch_idx, (edge_index, node_features, gt_node_labels) in enumerate(data_loader):
+        for batch_idx, (node_features, gt_node_labels, edge_index) in enumerate(data_loader):
             # Push the batch onto GPU - note PPI is to big to load the whole dataset into a normal GPU
             # it takes almost 8 GBs of VRAM to train it on a GPU
             edge_index = edge_index.to(device)
@@ -228,7 +228,7 @@ def get_training_args():
         "num_features_per_layer": [PPI_NUM_INPUT_FEATURES, 256, 256, PPI_NUM_CLASSES],
         "add_skip_connection": True,
         "bias": True,
-        "dropout": 0.0,
+        "dropout": 0.0,  # dropout hurts the performance
         "layer_type": LayerType.IMP3  # the only implementation that supports the inductive setting
     }
 

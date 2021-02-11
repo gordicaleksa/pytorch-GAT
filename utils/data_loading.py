@@ -59,7 +59,7 @@ def load_graph_data(training_config, device):
     layer_type = training_config['layer_type']
     should_visualize = training_config['should_visualize']
 
-    if dataset_name == DatasetType.CORA.name.lower():
+    if dataset_name == DatasetType.CORA.name.lower():  # Cora citation network
 
         # shape = (N, FIN), where N is the number of nodes and FIN is the number of input features
         node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
@@ -108,7 +108,7 @@ def load_graph_data(training_config, device):
 
         return node_features, node_labels, topology, train_indices, val_indices, test_indices
 
-    elif dataset_name == DatasetType.PPI.name.lower():
+    elif dataset_name == DatasetType.PPI.name.lower():  # Protein-Protein Interaction dataset
 
         # Instead of checking PPI in, I'd rather download it on-the-fly the first time it's needed (lazy execution ^^)
         if not os.path.exists(PPI_PATH):  # download the first time this is ran
@@ -127,7 +127,7 @@ def load_graph_data(training_config, device):
             os.remove(zip_tmp_path)
             print(f'Removing tmp file {zip_tmp_path}.')
 
-        # Collect train/val/test graph data here
+        # Collect train/val/test graphs here
         edge_index_list = []
         node_features_list = []
         node_labels_list = []
@@ -136,16 +136,6 @@ def load_graph_data(training_config, device):
         num_graphs_per_split_cumulative = [0]
 
         for split in ['train', 'valid', 'test']:
-            # Graph topology stored in a special nodes-links NetworkX format
-            nodes_links_dict = json_read(os.path.join(PPI_PATH, f'{split}_graph.json'))
-            # PPI contains undirected graphs with self edges - 20 train graphs, 2 validation graphs and 2 test graphs
-            # The reason I use a NetworkX's directed graph is because we need to explicitly model both directions
-            # because of the edge index and the way the GAT's implementation #3 works
-            collection_of_graphs = nx.DiGraph(json_graph.node_link_graph(nodes_links_dict))
-            # For each node in the above collection, ids specify to which graph the node belongs to
-            graph_ids = np.load(os.path.join(PPI_PATH, F'{split}_graph_id.npy'))
-            num_graphs_per_split_cumulative.append(num_graphs_per_split_cumulative[-1] + len(np.unique(graph_ids)))
-
             # PPI has 50 features per node, it's a combination of positional gene sets, motif gene sets,
             # and immunological signatures - you can treat it as a black box (I personally have a rough understanding)
             # shape = (NS, 50) - where NS is the number of (N)odes in the training/val/test (S)plit
@@ -155,23 +145,33 @@ def load_graph_data(training_config, device):
             # SHAPE = (NS, 121)
             node_labels = np.load(os.path.join(PPI_PATH, f'{split}_labels.npy'))
 
-            # Separate the collection of graphs into separate PPI graphs
+            # Graph topology stored in a special nodes-links NetworkX format
+            nodes_links_dict = json_read(os.path.join(PPI_PATH, f'{split}_graph.json'))
+            # PPI contains undirected graphs with self edges - 20 train graphs, 2 validation graphs and 2 test graphs
+            # The reason I use a NetworkX's directed graph is because we need to explicitly model both directions
+            # because of the edge index and the way GAT implementation #3 works
+            collection_of_graphs = nx.DiGraph(json_graph.node_link_graph(nodes_links_dict))
+            # For each node in the above collection, ids specify to which graph the node belongs to
+            graph_ids = np.load(os.path.join(PPI_PATH, F'{split}_graph_id.npy'))
+            num_graphs_per_split_cumulative.append(num_graphs_per_split_cumulative[-1] + len(np.unique(graph_ids)))
+
+            # Split the collection of graphs into separate PPI graphs
             for graph_id in range(np.min(graph_ids), np.max(graph_ids) + 1):
-                mask = graph_ids == graph_id  # find the nodes which belong to the current graph
+                mask = graph_ids == graph_id  # find the nodes which belong to the current graph (identified via id)
                 graph_node_ids = np.asarray(mask).nonzero()[0]
                 graph = collection_of_graphs.subgraph(graph_node_ids)  # returns the induced subgraph over these nodes
-                print(f'Loading {split} graph {graph_id}. '
+                print(f'Loading {split} graph {graph_id} to CPU. '
                       f'It has {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges.')
 
                 # shape = (2, E) - where E is the number of edges in the graph
                 # Note: leaving the tensors on CPU I'll load them to GPU in the training loop on-the-fly as VRAM
-                # is a scarcer resource than CPU's RAM.
+                # is a scarcer resource than CPU's RAM and the whole PPI dataset can't fit during the training.
                 edge_index = torch.tensor(list(graph.edges), dtype=torch.long).transpose(0, 1).contiguous()
                 edge_index = edge_index - edge_index.min()  # bring the edges to [0, num_of_nodes] range
                 edge_index_list.append(edge_index)
-                # shape = (N, 50) - where N is the number of edges in the graph
+                # shape = (N, 50) - where N is the number of nodes in the graph
                 node_features_list.append(torch.tensor(node_features[mask], dtype=torch.float))
-                # shape = (N, 121)
+                # shape = (N, 121), BCEWithLogitsLoss doesn't require long/int64 so saving some memory by using float32
                 node_labels_list.append(torch.tensor(node_labels[mask], dtype=torch.float))
 
                 if should_visualize:
@@ -182,25 +182,25 @@ def load_graph_data(training_config, device):
         # Prepare graph data loaders
         #
         data_loader_train = GraphDataLoader(
-            edge_index_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
             node_features_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
             node_labels_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
+            edge_index_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
             batch_size=training_config['batch_size'],
             shuffle=True
         )
 
         data_loader_val = GraphDataLoader(
-            edge_index_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
             node_features_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
             node_labels_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
+            edge_index_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
             batch_size=training_config['batch_size'],
             shuffle=False  # no need to shuffle the validation and test graphs
         )
 
         data_loader_test = GraphDataLoader(
-            edge_index_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
             node_features_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
             node_labels_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
+            edge_index_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
             batch_size=training_config['batch_size'],
             shuffle=False
         )
@@ -210,49 +210,66 @@ def load_graph_data(training_config, device):
         raise Exception(f'{dataset_name} not yet supported.')
 
 
-# When dealing with batches it's always a good idea to inherit from PyTorch's provided classes (Dataset/DataLoader)
 class GraphDataLoader(DataLoader):
+    """
+    When dealing with batches it's always a good idea to inherit from PyTorch's provided classes (Dataset/DataLoader).
 
-    def __init__(self, edge_index_list, node_features_list, node_labels_list, batch_size=1, shuffle=False):
-        graph_dataset = GraphDataset(edge_index_list, node_features_list, node_labels_list)
+    """
+    def __init__(self, node_features_list, node_labels_list, edge_index_list, batch_size=1, shuffle=False):
+        graph_dataset = GraphDataset(node_features_list, node_labels_list, edge_index_list)
+        # We need to specify a custom collate function, it doesn't work with the default one
         super().__init__(graph_dataset, batch_size, shuffle, collate_fn=graph_collate_fn)
 
 
 class GraphDataset(Dataset):
-    def __init__(self, edge_index_list, node_features_list, node_labels_list):
-        self.edge_index_list = edge_index_list
+    """
+    This one just fetches a single graph from the split when GraphDataLoader "asks" it
+
+    """
+    def __init__(self, node_features_list, node_labels_list, edge_index_list):
         self.node_features_list = node_features_list
         self.node_labels_list = node_labels_list
+        self.edge_index_list = edge_index_list
 
     # 2 interface functions that need to be defined are len and getitem so that DataLoader can do it's magic
     def __len__(self):
         return len(self.edge_index_list)
 
     def __getitem__(self, idx):  # we just fetch a single graph
-        return self.edge_index_list[idx], self.node_features_list[idx], self.node_labels_list[idx]
+        return self.node_features_list[idx], self.node_labels_list[idx], self.edge_index_list[idx]
 
 
 def graph_collate_fn(batch):
-    # The main idea here is to take the subgraphs i.e. multiple graphs from PPI as defined by the batch size
-    # and merge them into a single graph with multiple components
+    """
+    The main idea here is to take multiple graphs from PPI as defined by the batch size
+    and merge them into a single graph with multiple connected components.
+
+    It's important to adjust the node ids in edge indices such that they form a consecutive range. Otherwise
+    the scatter functions in the implementation 3 will fail.
+
+    :param batch: contains a list of edge_index, node_features, node_labels tuples (as provided by the GraphDataset)
+    """
+
     edge_index_list = []
     node_features_list = []
     node_labels_list = []
     num_nodes_seen = 0
 
-    for edge_index_features_labels_tuple in batch:
-        edge_index = edge_index_features_labels_tuple[0]
-        edge_index_list.append(edge_index + num_nodes_seen)  # very important translate the range of this component
-        num_nodes_seen += len(edge_index_features_labels_tuple[1])  # update the number of nodes we've seen so far
+    for features_labels_edge_index_tuple in batch:
+        # Just collect these into separate lists
+        node_features_list.append(features_labels_edge_index_tuple[0])
+        node_labels_list.append(features_labels_edge_index_tuple[1])
 
-        node_features_list.append(edge_index_features_labels_tuple[1])
-        node_labels_list.append(edge_index_features_labels_tuple[2])
+        edge_index = features_labels_edge_index_tuple[2]  # all of the components are in the [0, N] range
+        edge_index_list.append(edge_index + num_nodes_seen)  # very important! translate the range of this component
+        num_nodes_seen += len(features_labels_edge_index_tuple[1])  # update the number of nodes we've seen so far
 
-    edge_index = torch.cat(edge_index_list, 1)
+    # Merge the PPI graphs into a single graph with multiple connected components
     node_features = torch.cat(node_features_list, 0)
     node_labels = torch.cat(node_labels_list, 0)
+    edge_index = torch.cat(edge_index_list, 1)
 
-    return edge_index, node_features, node_labels
+    return node_features, node_labels, edge_index
 
 
 def json_read(path):

@@ -1,6 +1,7 @@
 import time
 import os
 from collections import defaultdict
+import enum
 
 
 import torch
@@ -67,6 +68,8 @@ def profile_gat_implementations(skip_if_profiling_info_cached=False, store_cache
         * implementation 2 (IMP2): time = 15.5 seconds, max memory allocated = 1.4 GB and reserved = 1.55 GB
         * implementation 3 (IMP3): time = 3.5 seconds, max memory allocated = 0.05 GB and reserved = 1.55 GB
 
+    Note: Profiling is done on Cora since the training is faster and most people will have enough VRAM to handle it.
+
     """
 
     num_of_profiling_loops = 20
@@ -107,7 +110,7 @@ def profile_gat_implementations(skip_if_profiling_info_cached=False, store_cache
                 training_config['layer_type'] = gat_layer_imp  # modify the training config so as to use different imp
 
                 ts = time.time()
-                train_gat(training_config)  # train and validation
+                train_gat_cora(training_config)  # train and validation
                 results_time[gat_layer_imp.name].append(time.time()-ts)  # collect timing information
 
                 # These 2 methods basically query this function: torch.cuda.memory_stats() it contains much more detail.
@@ -129,6 +132,9 @@ def profile_gat_implementations(skip_if_profiling_info_cached=False, store_cache
             pickle_save(time_profiling_dump_filepath, results_time)  # dump into cache files
             pickle_save(mem_profiling_dump_filepath, results_memory)
     else:
+        print('*' * 50)
+        print('Using cached profiling information!')
+        print('*' * 50)
         results_time = pickle_read(time_profiling_dump_filepath)
         results_memory = pickle_read(mem_profiling_dump_filepath)
 
@@ -144,6 +150,16 @@ def profile_gat_implementations(skip_if_profiling_info_cached=False, store_cache
         print(f'Max mem allocated = {to_GBs(max_memory_allocated)}, max mem reserved = {to_GBs(max_memory_reserved)}.')
 
 
+def visualize_graph_dataset(dataset_name):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU
+    config = {
+        'dataset_name': dataset_name,  # Cora or PPI
+        'layer_type': LayerType.IMP3,  # don't care, but it's needed for load_graph_data function to work
+        'should_visualize': True  # visualize the dataset
+    }
+    load_graph_data(config, device)
+
+
 def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetType.CORA.name, visualization_type=VisualizationType.ATTENTION):
     """
     Notes on t-SNE:
@@ -153,19 +169,32 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
     open up an issue or DM me on social media! <3
 
     Note: I also tried using UMAP but it doesn't provide any more insight than t-SNE.
-    (con: it has a lot of dependencies if you want to use their plotting functionality)
+    (additional con: it has a lot of dependencies if you want to use their plotting functionality)
 
     """
+    # I tried visualizing PPI's 2D embeddings without any label/color information but it's not informative
+    if dataset_name == DatasetType.PPI.name and visualization_type == VisualizationType.EMBEDDINGS:
+        print("PPI can't be visualized using t-SNE since it's a multi-label dataset")
+        exit(0)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
     config = {
         'dataset_name': dataset_name,
         'layer_type': LayerType.IMP3,
-        'should_visualize': False  # don't visualize the dataset
+        'should_visualize': False,  # don't visualize the dataset
+        'batch_size': 2  # used only for PPI
     }
 
     # Step 1: Prepare the data
-    node_features, node_labels, topology, _, _, _ = load_graph_data(config, device)
+    if dataset_name == DatasetType.CORA.name:
+        node_features, node_labels, topology, _, _, _ = load_graph_data(config, device)
+    else:
+        _, _, data_loader_test = load_graph_data(config, device)
+        node_features, node_labels, topology = next(iter(data_loader_test))
+        node_features = node_features.to(device)  # need to explicitly push them to GPU since PPI eats up a lot of VRAM
+        node_labels = node_labels.to(device)
+        topology = topology.to(device)
 
     # Step 2: Prepare the model
     model_path = os.path.join(BINARIES_PATH, model_name)
@@ -183,6 +212,8 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
     ).to(device)
 
     print_model_metadata(model_state)
+    assert model_state['dataset_name'].lower() == dataset_name.lower(), \
+        f"The model was trained on {model_state['dataset_name']} but you're calling it on {dataset_name}."
     gat.load_state_dict(model_state["state_dict"], strict=True)
     gat.eval()  # some layers like nn.Dropout behave differently in train vs eval mode so this part is important
 
@@ -329,36 +360,41 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
         raise Exception(f'Visualization type {visualization_type} not supported.')
 
 
-def visualize_graph_dataset(dataset_name):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU
-    config = {
-        'dataset_name': dataset_name,
-        'layer_type': LayerType.IMP3,  # don't care
-        'should_visualize': True  # visualize the dataset
-    }
-    load_graph_data(config, device)
+class PLAYGROUND(enum.Enum):
+    PROFILE_SPARSE = 0,
+    PROFILE_GAT = 1,
+    VISUALIZE_DATASET = 2,
+    VISUALIZE_GAT = 3
 
 
 if __name__ == '__main__':
     #
-    # Uncomment the function you want to play with <3
+    # Pick the function you want to play with <3
     #
+    playground_fn = PLAYGROUND.VISUALIZE_GAT
 
-    # shape = (N, F), where N is the number of nodes and F is the number of features
-    # node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
-    # profile_sparse_matrix_formats(node_features_csr)
+    if playground_fn == PLAYGROUND.PROFILE_SPARSE:
+        # shape = (N, F), where N is the number of nodes and F is the number of features
+        node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
+        profile_sparse_matrix_formats(node_features_csr)
 
-    # Set to True if you want to use the caching mechanism. Once you compute the profiling info it gets stored
-    # in data/ dir as timing.dict and memory.dict which you can later just load instead of computing again
-    # profile_gat_implementations(skip_if_profiling_info_cached=True)
+    elif playground_fn == PLAYGROUND.PROFILE_GAT:
+        # Set to True if you want to use the caching mechanism. Once you compute the profiling info it gets stored
+        # in data/ dir as timing.dict and memory.dict which you can later just load instead of computing again
+        profile_gat_implementations(skip_if_profiling_info_cached=True, store_cache=True)
 
-    # visualize_graph_dataset(dataset_name=DatasetType.CORA.name)
+    elif playground_fn == PLAYGROUND.VISUALIZE_DATASET:
+        visualize_graph_dataset(dataset_name=DatasetType.CORA.name)  # pick between CORA and PPI
 
-    visualize_gat_properties(
-        model_name=r'gat_000000.pth',
-        dataset_name=DatasetType.CORA.name,
-        visualization_type=VisualizationType.EMBEDDINGS  # pick between attention, t-SNE embeddings and entropy
-    )
+    elif playground_fn == PLAYGROUND.VISUALIZE_GAT:
+        visualize_gat_properties(
+            model_name=r'gat_000000.pth',
+            dataset_name=DatasetType.CORA.name,
+            visualization_type=VisualizationType.EMBEDDINGS  # pick between attention, t-SNE embeddings and entropy
+        )
+
+    else:
+        raise Exception(f'Woah, this playground function "{playground_fn}" does not exist.')
 
 
 

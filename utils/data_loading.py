@@ -135,7 +135,10 @@ def load_graph_data(training_config, device):
         # Dynamically determine how many graphs we have per split (avoid using constants when possible)
         num_graphs_per_split_cumulative = [0]
 
-        for split in ['train', 'valid', 'test']:
+        # Small optimization "trick" since we only need test in the playground.py
+        splits = ['test'] if training_config['ppi_load_test_only'] else ['train', 'valid', 'test']
+
+        for split in splits:
             # PPI has 50 features per node, it's a combination of positional gene sets, motif gene sets,
             # and immunological signatures - you can treat it as a black box (I personally have a rough understanding)
             # shape = (NS, 50) - where NS is the number of (N)odes in the training/val/test (S)plit
@@ -181,31 +184,44 @@ def load_graph_data(training_config, device):
         #
         # Prepare graph data loaders
         #
-        data_loader_train = GraphDataLoader(
-            node_features_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
-            node_labels_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
-            edge_index_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
-            batch_size=training_config['batch_size'],
-            shuffle=True
-        )
 
-        data_loader_val = GraphDataLoader(
-            node_features_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
-            node_labels_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
-            edge_index_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
-            batch_size=training_config['batch_size'],
-            shuffle=False  # no need to shuffle the validation and test graphs
-        )
+        # Optimization, do a shortcut in case we only need the test data loader
+        if training_config['ppi_load_test_only']:
+            data_loader_test = GraphDataLoader(
+                node_features_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
+                node_labels_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
+                edge_index_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
+                batch_size=training_config['batch_size'],
+                shuffle=False
+            )
+            return data_loader_test
+        else:
 
-        data_loader_test = GraphDataLoader(
-            node_features_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
-            node_labels_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
-            edge_index_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
-            batch_size=training_config['batch_size'],
-            shuffle=False
-        )
+            data_loader_train = GraphDataLoader(
+                node_features_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
+                node_labels_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
+                edge_index_list[num_graphs_per_split_cumulative[0]:num_graphs_per_split_cumulative[1]],
+                batch_size=training_config['batch_size'],
+                shuffle=True
+            )
 
-        return data_loader_train, data_loader_val, data_loader_test
+            data_loader_val = GraphDataLoader(
+                node_features_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
+                node_labels_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
+                edge_index_list[num_graphs_per_split_cumulative[1]:num_graphs_per_split_cumulative[2]],
+                batch_size=training_config['batch_size'],
+                shuffle=False  # no need to shuffle the validation and test graphs
+            )
+
+            data_loader_test = GraphDataLoader(
+                node_features_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
+                node_labels_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
+                edge_index_list[num_graphs_per_split_cumulative[2]:num_graphs_per_split_cumulative[3]],
+                batch_size=training_config['batch_size'],
+                shuffle=False
+            )
+
+            return data_loader_train, data_loader_val, data_loader_test
     else:
         raise Exception(f'{dataset_name} not yet supported.')
 

@@ -173,8 +173,9 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
 
     """
     # I tried visualizing PPI's 2D embeddings without any label/color information but it's not informative
-    if dataset_name == DatasetType.PPI.name and visualization_type == VisualizationType.EMBEDDINGS:
-        print("PPI can't be visualized using t-SNE since it's a multi-label dataset")
+    # I'm working on fixing some attention/entropy bug for PPI so for the time being please just use Cora
+    if dataset_name == DatasetType.PPI.name:
+        print("PPI visualization not supported at the moment")
         exit(0)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
@@ -183,14 +184,15 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
         'dataset_name': dataset_name,
         'layer_type': LayerType.IMP3,
         'should_visualize': False,  # don't visualize the dataset
-        'batch_size': 2  # used only for PPI
+        'batch_size': 2,  # used only for PPI
+        'ppi_load_test_only': True  # used only for PPI (optimization, we're loading only test graphs)
     }
 
     # Step 1: Prepare the data
     if dataset_name == DatasetType.CORA.name:
         node_features, node_labels, topology, _, _, _ = load_graph_data(config, device)
     else:
-        _, _, data_loader_test = load_graph_data(config, device)
+        data_loader_test = load_graph_data(config, device)
         node_features, node_labels, topology = next(iter(data_loader_test))
         node_features = node_features.to(device)  # need to explicitly push them to GPU since PPI eats up a lot of VRAM
         node_labels = node_labels.to(device)
@@ -238,7 +240,7 @@ def visualize_gat_properties(model_name=r'gat_000000.pth', dataset_name=DatasetT
         # (2x this actually as we add nodes with highest degree + random nodes)
         num_nodes_of_interest = 4  # 4 is an arbitrary number you can play with these numbers
         head_to_visualize = 0  # plot attention from this multi-head attention's head
-        gat_layer_id = 1  # plot attention from this GAT layer
+        gat_layer_id = -1  # plot attention from this GAT layer (the last one by default)
 
         # Build up the complete graph
         # node_features shape = (N, FIN), where N is the number of nodes and FIN number of input features

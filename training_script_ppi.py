@@ -226,9 +226,9 @@ def get_training_args():
         "num_of_layers": 3,  # GNNs, contrary to CNNs, are often shallow (it ultimately depends on the graph properties)
         "num_heads_per_layer": [4, 4, 6],
         "num_features_per_layer": [PPI_NUM_INPUT_FEATURES, 256, 256, PPI_NUM_CLASSES],
-        "add_skip_connection": True,
-        "bias": True,
-        "dropout": 0.0,  # dropout hurts the performance
+        "add_skip_connection": True,  # skip connection is very important! (keep it otherwise micro-F1 is almost 0)
+        "bias": False,  # bias doesn't matter that much, setting to False to save some memory
+        "dropout": 0.0,  # dropout hurts the performance (best to keep it at 0)
         "layer_type": LayerType.IMP3  # the only implementation that supports the inductive setting
     }
 
@@ -236,6 +236,7 @@ def get_training_args():
     training_config = dict()
     for arg in vars(args):
         training_config[arg] = getattr(args, arg)
+    training_config['ppi_load_test_only'] = False  # load both train/val/test data loaders (don't change it)
 
     # Add additional config information
     training_config.update(gat_config)

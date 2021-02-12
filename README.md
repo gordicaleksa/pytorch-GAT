@@ -4,11 +4,11 @@ It's aimed at making it **easy to start playing and learning** about GAT and GNN
 
 ## Table of Contents
 * [What are graph neural networks and GAT?](#what-are-gnns)
-* [Visualizations (Cora, attention, embeddings)](#cora-visualized)
+* [Visualizations (Cora and PPI, attention, t-SNE embeddings, entropy histograms)](#cora-visualized)
 * [Setup](#setup)
 * [Usage](#usage)
     * [Training GAT](#training-gat)
-    * [Tip for understanding the code](#tip-for-understanding-the-code)
+    * [Tips for understanding the code](#tip-for-understanding-the-code)
     * [Profiling GAT](#profiling-gat)
     * [Visualization tools](#visualization-tools)
 * [Hardware requirements](#hardware-requirements)
@@ -18,7 +18,7 @@ It's aimed at making it **easy to start playing and learning** about GAT and GNN
 
 Graph neural networks are a family of neural networks that are dealing with signals defined over graphs!
 
-Graphs can model many interesting natural phenomena so you'll see them used everywhere from:
+Graphs can model many interesting natural phenomena, so you'll see them used everywhere from:
 * Computational biology - predicting potent [antibiotics like halicin](https://www.nature.com/articles/d41586-020-00018-3)
 * Computational pharmacology - predicting [drug side effects](https://arxiv.org/abs/1802.00543)
 * Traffic forecasting - e.g. it's used in [Google Maps](https://deepmind.com/blog/article/traffic-prediction-with-advanced-graph-neural-networks)
@@ -47,7 +47,7 @@ I've added a utility for visualizing Cora and doing basic network analysis. Here
 <img src="data/readme_pics/cora_graph_jupyter.PNG"/>
 </p>
 
-Node size corresponds to its degree (i.e. the number of in/out going edges). Edge thickness roughly corresponds
+Node size corresponds to its degree (i.e. the number of in/outgoing edges). Edge thickness roughly corresponds
 to how "popular" or "connected" that edge is (**edge betweennesses** is the nerdy term [check out the code](https://github.com/gordicaleksa/pytorch-GAT/blob/main/utils/visualizations.py#L104).)
 
 And here is a plot showing the degree distribution on Cora:
@@ -109,7 +109,7 @@ Another way to understand that GAT isn't learning interesting attention patterns
 is by treating the node neighborhood's attention weights as a probability distribution, calculating the entropy, and
 accumulating the info across every node's neighborhood.
 
-We'd love GAT's attention distributions to be skewed. You can see in orange how the histogram looks like for ideal uniform distributions
+We'd love GAT's attention distributions to be skewed. You can see in orange how the histogram looks like for ideal uniform distributions,
 and you can see in light blue the learned distributions - they are exactly the same!
 
 <p align="center">
@@ -136,7 +136,7 @@ the number of classes. Once we project those 7-dim vectors into 2D, using [t-SNE
 <img src="data/readme_pics/t-sne.PNG" width="600"/>
 </p>
 
-We can see that nodes with same label/class are roughly **clustered together** - with these representations it's easy
+We can see that the nodes with the same label/class are roughly **clustered together** - with these representations it's easy
 to train a simple classifier on top that will tell us which class the node belongs to.
 
 *Note: I've tried UMAP as well but didn't get nicer results + it has a lot of dependencies if you want to use their plot util.*
@@ -165,7 +165,7 @@ and use the most up-to-date versions of Miniconda and CUDA/cuDNN for your system
 
 #### Option 1: Jupyter Notebook
 
-Just run `jupyter notebook` from you Anaconda console and it will open the session in your default browser. <br/>
+Just run `jupyter notebook` from you Anaconda console and it will open up a session in your default browser. <br/>
 Open `The Annotated GAT.ipynb` and you're ready to play!
 
 ---
@@ -201,7 +201,7 @@ The script will:
 * Save metrics into `runs/`, just run `tensorboard --logdir=runs` from your Anaconda to visualize it
 * Periodically write some training metadata to the console
 
-Same goes for training on PPI just run `python training_script_ppi.py`. PPI is much more GPU-hungry so if
+Same goes for training on PPI, just run `python training_script_ppi.py`. PPI is much more GPU-hungry so if
 you don't have a strong GPU with at least 8 GBs you'll need to add the `--force_cpu` flag to train GAT on CPU.
 You can alternatively try reducing the batch size to 1 or making the model slimmer.
 
@@ -230,7 +230,7 @@ Implementation 1 and implementation 2 differ in subtle details but basically do 
 
 ### Profiling GAT
 
-If you want to profile the 3 implementations just uncomment the `profile_gat_implementations()` function in `playground.py`.
+If you want to profile the 3 implementations just set the the `playground_fn` variable to `PLAYGROUND.PROFILE_GAT` in `playground.py`.
 
 There are 2 params you may care about:
 * `store_cache` - set to `True` if you wish to save the memory/time profiling results after you've run it
@@ -247,8 +247,8 @@ like `COO`, `CSR`, `CSC`, `LIL`, etc.
 
 ### Visualization tools
 
-If you want to visualize t-SNE embeddings, attention or embeddings uncomment the `visualize_gat_properties` function and
-set `visualization_type` to:
+If you want to visualize t-SNE embeddings, attention or embeddings set the `playground_fn` variable to `PLAYGROUND.VISUALIZE_GAT` and
+set the `visualization_type` to:
 * `VisualizationType.ATTENTION` - if you wish to visualize attention across node neighborhoods
 * `VisualizationType.EMBEDDING` - if you wish to visualize the embeddings (via t-SNE)
 * `VisualizationType.ENTROPY` - if you wish to visualize the entropy histograms
@@ -270,15 +270,15 @@ But you can also use different drawing algorithms like `kamada kawai` (on the ri
 
 Feel free to go through the code and play with plotting attention from different GAT layers, plotting different node
 neighborhoods or attention heads. You can also easily change the number of layers in your GAT, although [shallow GNNs](https://towardsdatascience.com/do-we-need-deep-graph-neural-networks-be62d3ec5c59)
-tend to perform the best on [small-world](https://en.wikipedia.org/wiki/Small-world_network), `homophilic` graph datasets.
+tend to perform the best on [small-world](https://en.wikipedia.org/wiki/Small-world_network), homophilic graph datasets.
 
 ---
 
-If you want to visualize Cora just uncomment `visualize_graph_dataset()` and you'll get the results [from this README](#cora-visualized).
+If you want to visualize Cora/PPI just set the `playground_fn` to `PLAYGROUND.VISUALIZE_DATASET` and you'll get the results [from this README](#cora-visualized).
 
 ## Hardware requirements
 
-HW requirements are highly dependent on the graph data you'll use. If you just want to play with `Cora`, you're good to go with a 2+ GBs GPU.
+HW requirements are highly dependent on the graph data you'll use. If you just want to play with `Cora`, you're good to go with a **2+ GBs** GPU.
 
 It takes (on Cora citation network):
 * ~10 seconds to train GAT on my RTX 2080 GPU
@@ -287,12 +287,12 @@ It takes (on Cora citation network):
 
 Compare this to hardware needed even for the smallest of [transformers](https://github.com/gordicaleksa/pytorch-original-transformer#hardware-requirements)!
 
-On the other hand the `PPI` dataset is much more GPU-hungry. You'll need a GPU with 8+ GBs of VRAM, or you
+On the other hand the `PPI` dataset is much more GPU-hungry. You'll need a GPU with **8+ GBs** of VRAM, or you
 can reduce the batch size to 1 and make the model "slimmer" and thus try to reduce the VRAM consumption.
 
 ### Future todos:
 
-* Figure out why are the `attention coefficients equal to 0` for the PPI dataset (second and third layer)
+* Figure out why are the *attention coefficients equal to 0* (for the PPI dataset, second and third layer)
 * Potentially add an implementation leveraging PyTorch's `sparse API`
 
 If you have an idea of how to implement GAT using PyTorch's sparse API please feel free to submit a PR.
@@ -311,7 +311,7 @@ If you're having difficulties understanding GAT I did an in-depth overview of th
 alt="The GAT paper explained" width="480" height="360" border="10" /></a>
 </p>
 
-I also made a [walk-through video](https://www.youtube.com/watch?v=364hpoRB4PQ) of this repo here (focusing on the potential pain points), 
+I also made a [walk-through video](https://www.youtube.com/watch?v=364hpoRB4PQ) of this repo (focusing on the potential pain points), 
 and a blog for [getting started with Graph ML](https://gordicaleksa.medium.com/how-to-get-started-with-graph-machine-learning-afa53f6f963a) in general! :heart:
 
 I have some more videos which could further help you understand GNNs:

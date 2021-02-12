@@ -400,8 +400,8 @@ if __name__ == '__main__':
 
     elif playground_fn == PLAYGROUND.VISUALIZE_GAT:
         visualize_gat_properties(
-            model_name=r'gat_000000.pth',
-            dataset_name=DatasetType.CORA.name,
+            model_name=r'gat_000000.pth',  # set to PPI or CORA model, keep it in sync with the 'dataset_name'
+            dataset_name=DatasetType.CORA.name,  # pick between CORA and PPI
             visualization_type=VisualizationType.EMBEDDINGS  # pick between attention, t-SNE embeddings and entropy
         )
 

@@ -155,7 +155,8 @@ def visualize_graph_dataset(dataset_name):
     config = {
         'dataset_name': dataset_name,  # Cora or PPI
         'layer_type': LayerType.IMP3,  # don't care, but it's needed for load_graph_data function to work
-        'should_visualize': True  # visualize the dataset
+        'should_visualize': True,  # visualize the dataset
+        'ppi_load_test_only': True  # only used for PPI, let's just load the test graphs
     }
     load_graph_data(config, device)
 

@@ -1,6 +1,6 @@
 import argparse
 import time
-
+from math import inf
 
 import torch
 import torch.nn as nn
@@ -163,7 +163,7 @@ def train_gat_cora(config):
         config['patience_period'],
         time.time())
 
-    BEST_VAL_PERF, BEST_VAL_LOSS, PATIENCE_CNT = [0, 0, 0]  # reset vars used for early stopping
+    BEST_VAL_PERF, BEST_VAL_LOSS, PATIENCE_CNT = [0, inf, 0]  # reset vars used for early stopping
 
     # Step 4: Start the training procedure
     for epoch in range(config['num_of_epochs']):

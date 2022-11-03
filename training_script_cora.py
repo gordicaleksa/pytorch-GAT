@@ -223,7 +223,8 @@ def get_training_args():
         "add_skip_connection": False,  # hurts perf on Cora
         "bias": True,  # result is not so sensitive to bias
         "dropout": 0.6,  # result is sensitive to dropout
-        "layer_type": LayerType.IMP3  # fastest implementation enabled by default
+        #"layer_type": LayerType.IMP3  # fastest implementation enabled by default
+        "layer_type": LayerType.IMP2
     }
 
     # Wrapping training configuration into a dictionary

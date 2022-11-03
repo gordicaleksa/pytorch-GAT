@@ -21,7 +21,7 @@ class GAT(torch.nn.Module):
                  dropout=0.6, layer_type=LayerType.IMP3, log_attention_weights=False):
         super().__init__()
         assert num_of_layers == len(num_heads_per_layer) == len(num_features_per_layer) - 1, f'Enter valid arch params.'
-
+        #### 选择实现方式
         GATLayer = get_layer_type(layer_type)  # fetch one of 3 available implementations
         num_heads_per_layer = [1] + num_heads_per_layer  # trick - so that I can nicely create GAT layers below
 
@@ -388,23 +388,30 @@ class GATLayerImp2(GATLayer):
         # Step 2: Edge attention calculation (using sum instead of bmm + additional permute calls - compared to imp1)
         #
 
-        # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
+        # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product) ### 哈达玛积, c_ij = a_ij × b_ij
         # shape = (N, NH, FOUT) * (1, NH, FOUT) -> (N, NH, 1)
         # Optimization note: torch.sum() is as performant as .sum() in my experiments
         scores_source = torch.sum((nodes_features_proj * self.scoring_fn_source), dim=-1, keepdim=True)
         scores_target = torch.sum((nodes_features_proj * self.scoring_fn_target), dim=-1, keepdim=True)
 
         # src shape = (NH, N, 1) and trg shape = (NH, 1, N)
-        scores_source = scores_source.transpose(0, 1)
-        scores_target = scores_target.permute(1, 2, 0)
+        scores_source = scores_source.transpose(0, 1) ### (N, NH, 1) -> (NH, N, 1)  ### self_attn
+        scores_target = scores_target.permute(1, 2, 0) ### (N, NH, 1) -> (NH, 1, N) ### neigh_attn
 
         # shape = (NH, N, 1) + (NH, 1, N) -> (NH, N, N) with the magic of automatic broadcast <3
         # In Implementation 3 we are much smarter and don't have to calculate all NxN scores! (only E!)
         # Tip: it's conceptually easier to understand what happens here if you delete the NH dimension
-        all_scores = self.leakyReLU(scores_source + scores_target)
+        all_scores = self.leakyReLU(scores_source + scores_target) #### 注意力系数矩阵
         # connectivity mask will put -inf on all locations where there are no edges, after applying the softmax
         # this will result in attention scores being computed only for existing edges
-        all_attention_coefficients = self.softmax(all_scores + connectivity_mask)
+        #####################################################################
+        ####                                                             ####
+        ####   1. 把connect_mask, 改成abs_dist_mask, 并变成乘法           ####
+        ####   2. d_ij 过大, 则把mask改为0                                ####
+        ####   Q. 是否需要对softmax进行优化, 防止下溢 or 上溢               ####
+        ####   https://blog.csdn.net/Shingle_/article/details/81988628   ####
+        #####################################################################
+        all_attention_coefficients = self.softmax(all_scores + connectivity_mask) 
 
         #
         # Step 3: Neighborhood aggregation (same as in imp1)

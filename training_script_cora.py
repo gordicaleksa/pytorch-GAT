@@ -224,7 +224,10 @@ def get_training_args():
         "bias": True,  # result is not so sensitive to bias
         "dropout": 0.6,  # result is sensitive to dropout
         #"layer_type": LayerType.IMP3  # fastest implementation enabled by default
-        "layer_type": LayerType.IMP2
+        "layer_type": LayerType.IMP2,
+        #++++++++++++++++++++++++++
+        "max_dist": 3,
+        "newton_k": 0.3
     }
 
     # Wrapping training configuration into a dictionary

@@ -24,7 +24,8 @@ class GraphVisualizationTool(enum.Enum):
 class LayerType(enum.Enum):
     IMP1 = 0,
     IMP2 = 1,
-    IMP3 = 2
+    IMP3 = 2,
+    MyIMP2 = 3
 
 
 # 3 different model training/eval phases used in train.py

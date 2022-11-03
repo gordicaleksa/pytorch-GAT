@@ -21,7 +21,7 @@ class GAT(torch.nn.Module):
                  dropout=0.6, layer_type=LayerType.IMP3, log_attention_weights=False):
         super().__init__()
         assert num_of_layers == len(num_heads_per_layer) == len(num_features_per_layer) - 1, f'Enter valid arch params.'
-        #### 选择实现方式
+        #### 
         GATLayer = get_layer_type(layer_type)  # fetch one of 3 available implementations
         num_heads_per_layer = [1] + num_heads_per_layer  # trick - so that I can nicely create GAT layers below
 
@@ -406,7 +406,7 @@ class GATLayerImp2(GATLayer):
         # this will result in attention scores being computed only for existing edges
         #####################################################################
         ####                                                             ####
-        ####   1. 把connect_mask, 改成abs_dist_mask, 并变成乘法           ####
+        ####   1. 把connect_mask, 改成dist_mask, 并变成乘法               ####
         ####   2. d_ij 过大, 则把mask改为0                                ####
         ####   Q. 是否需要对softmax进行优化, 防止下溢 or 上溢               ####
         ####   https://blog.csdn.net/Shingle_/article/details/81988628   ####

@@ -54,10 +54,41 @@ from utils.constants import *
 from utils.visualizations import plot_in_out_degree_distributions, visualize_graph
 
 
+def get_dist_matrix(G, max_dist):
+    """
+    ## param
+        G
+        max_dist
+    ## return
+        返回距离小于max_dist的距离矩阵, 不含自环, dtype('float64')
+    """
+    N = G.number_of_nodes()
+    dist_matrix = np.zeros((N, N), dtype=float)
+
+    spl = dict(nx.all_pairs_shortest_path_length(G)) ## dict
+    for u in spl:
+        for v in spl[u]:
+            if (u < v and spl[u][v] < max_dist): 
+                dist_matrix[u][v] = dist_matrix[v][u] = spl[u][v]
+    
+    return dist_matrix
+
 def load_graph_data(training_config, device):
+    """
+    ## return 
+    [0] node_features \n
+    [1] node_labels \n
+    [2] topology: 邻接矩阵 or 跳数权重矩阵 \n
+    [3] train_indices \n
+    [4] val_indices \n
+    [5] test_indices \n
+    """    
     dataset_name = training_config['dataset_name'].lower()
     layer_type = training_config['layer_type']
     should_visualize = training_config['should_visualize']
+    #++++++++++++++++++++++++++++++++
+    max_dist = training_config['max_dist']
+    newton_k = training_config['newton_k']
 
     if dataset_name == DatasetType.CORA.name.lower():  # Cora citation network
 
@@ -76,14 +107,28 @@ def load_graph_data(training_config, device):
             # Build edge index explicitly (faster than nx ~100 times and as fast as PyGeometric imp but less complex)
             # shape = (2, E), where E is the number of edges, and 2 for source and target nodes. Basically edge index
             # contains tuples of the format S->T, e.g. 0->3 means that node with id 0 points to a node with id 3.
-            topology = build_edge_index(adjacency_list_dict, num_of_nodes, add_self_edges=True)
+            topology = build_edge_index(adjacency_list_dict, num_of_nodes, add_self_edges=True)      
+
         elif layer_type == LayerType.IMP2 or layer_type == LayerType.IMP1:
+            """
             # adjacency matrix shape = (N, N)
             topology = nx.adjacency_matrix(nx.from_dict_of_lists(adjacency_list_dict)).todense().astype(np.float)
             topology += np.identity(topology.shape[0])  # add self connections
             topology[topology > 0] = 1  # multiple edges not allowed
             topology[topology == 0] = -np.inf  # make it a mask instead of adjacency matrix (used to mask softmax)
             topology[topology == 1] = 0
+            """
+            # --
+            G = nx.from_dict_of_lists(adjacency_list_dict)
+            
+            ### 跳数矩阵 D
+            topology = get_dist_matrix(G, max_dist)
+            topology += np.identity(topology.shape[0])  # 增加自环
+
+            ### 跳数权重矩阵 WD
+            topology = np.exp(topology * -newton_k)  ### exp(-k(d_ij))
+            # --
+
         else:
             raise Exception(f'Layer type {layer_type} not yet supported.')
 

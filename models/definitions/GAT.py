@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+import numpy as np
 
 from utils.constants import LayerType
 
@@ -404,14 +404,39 @@ class GATLayerImp2(GATLayer):
         all_scores = self.leakyReLU(scores_source + scores_target) #### 注意力系数矩阵
         # connectivity mask will put -inf on all locations where there are no edges, after applying the softmax
         # this will result in attention scores being computed only for existing edges
-        #####################################################################
-        ####                                                             ####
-        ####   1. 把connect_mask, 改成dist_mask, 并变成乘法               ####
-        ####   2. d_ij 过大, 则把mask改为0                                ####
-        ####   Q. 是否需要对softmax进行优化, 防止下溢 or 上溢               ####
-        ####   https://blog.csdn.net/Shingle_/article/details/81988628   ####
-        #####################################################################
+        """
         all_attention_coefficients = self.softmax(all_scores + connectivity_mask) 
+        """
+
+        #+++++++++++++++++++++++++++++++++++++
+        """
+        WD 格式类似于:
+            tensor([[0.7408, 0.7408, 1.0000],
+                    [0.7408, 0.7408, 0.7408],
+                    [1.0000, 0.4066, 0.7408]])
+
+        WD_ij == 1.0 : 在exp之前 D_ij 为 0
+        """
+        ## 1. 筛除不相邻 or 跳数距离过大 的节点对
+
+        mask = connectivity_mask.clone().detach() ## 含自环
+        mask[mask < 1] = 0
+        mask[mask == 1] = -np.inf
+
+        dense1 = self.softmax(all_scores + mask)
+
+        ## 2. 跳数权重 (自身的不计算)
+
+        ### 把WD的对角线置1, 使之不影响self-attn
+        WD = connectivity_mask.clone().detach()
+        WD_n = WD.shape[0]
+        WD[range(WD_n), range(WD_n)] = 1
+
+        ### 原注意力 * 跳数权重
+        dense2 = self.softmax(dense1 * WD)
+
+        all_attention_coefficients = dense2
+        #+++++++++++++++++++++++++++++++++++++
 
         #
         # Step 3: Neighborhood aggregation (same as in imp1)

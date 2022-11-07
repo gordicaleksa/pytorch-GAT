@@ -23,6 +23,7 @@ class GAT(torch.nn.Module):
         assert num_of_layers == len(num_heads_per_layer) == len(num_features_per_layer) - 1, f'Enter valid arch params.'
         #### 
         GATLayer = get_layer_type(layer_type)  # fetch one of 3 available implementations
+        print('### Using layer: ', layer_type)
         num_heads_per_layer = [1] + num_heads_per_layer  # trick - so that I can nicely create GAT layers below
 
         gat_layers = []  # collect GAT layers
@@ -47,7 +48,10 @@ class GAT(torch.nn.Module):
     # data is just a (in_nodes_features, topology) tuple, I had to do it like this because of the nn.Sequential:
     # https://discuss.pytorch.org/t/forward-takes-2-positional-arguments-but-3-were-given-for-nn-sqeuential-with-linear-layers/65698
     def forward(self, data):
-        return self.gat_net(data)
+        emb = self.gat_net(data)
+        emb = list(emb)[:2] # 转list, 用于取前两个元素
+        return tuple(emb)
+        #return self.gat_net(data)
 
 
 class GATLayer(torch.nn.Module):
@@ -404,39 +408,8 @@ class GATLayerImp2(GATLayer):
         all_scores = self.leakyReLU(scores_source + scores_target) #### 注意力系数矩阵
         # connectivity mask will put -inf on all locations where there are no edges, after applying the softmax
         # this will result in attention scores being computed only for existing edges
-        """
+
         all_attention_coefficients = self.softmax(all_scores + connectivity_mask) 
-        """
-
-        #+++++++++++++++++++++++++++++++++++++
-        """
-        WD 格式类似于:
-            tensor([[0.7408, 0.7408, 1.0000],
-                    [0.7408, 0.7408, 0.7408],
-                    [1.0000, 0.4066, 0.7408]])
-
-        WD_ij == 1.0 : 在exp之前 D_ij 为 0
-        """
-        ## 1. 筛除不相邻 or 跳数距离过大 的节点对
-
-        mask = connectivity_mask.clone().detach() ## 含自环
-        mask[mask < 1] = 0
-        mask[mask == 1] = -np.inf
-
-        dense1 = self.softmax(all_scores + mask)
-
-        ## 2. 跳数权重 (自身的不计算)
-
-        ### 把WD的对角线置1, 使之不影响self-attn
-        WD = connectivity_mask.clone().detach()
-        WD_n = WD.shape[0]
-        WD[range(WD_n), range(WD_n)] = 1
-
-        ### 原注意力 * 跳数权重
-        dense2 = self.softmax(dense1 * WD)
-
-        all_attention_coefficients = dense2
-        #+++++++++++++++++++++++++++++++++++++
 
         #
         # Step 3: Neighborhood aggregation (same as in imp1)
@@ -525,7 +498,105 @@ class GATLayerImp1(GATLayer):
         out_nodes_features = self.skip_concat_bias(all_attention_coefficients, in_nodes_features, out_nodes_features)
         return (out_nodes_features, connectivity_mask)
 
+class GATLayerMyImp2(GATLayer):
+    def __init__(self, num_in_features, num_out_features, num_of_heads, concat=True, activation=nn.ELU(),
+                 dropout_prob=0.6, add_skip_connection=True, bias=True, log_attention_weights=False):
 
+        super().__init__(num_in_features, num_out_features, num_of_heads, LayerType.IMP2, concat, activation, dropout_prob,
+                         add_skip_connection, bias, log_attention_weights)
+
+    def forward(self, data):
+        #
+        # Step 1: Linear Projection + regularization (using linear layer instead of matmul as in imp1)
+        #
+
+        in_nodes_features, connectivity_mask,  = data  # unpack data
+        num_of_nodes = in_nodes_features.shape[0]
+        assert connectivity_mask.shape == (num_of_nodes, num_of_nodes), \
+            f'Expected connectivity matrix with shape=({num_of_nodes},{num_of_nodes}), got shape={connectivity_mask.shape}.'
+
+        # shape = (N, FIN) where N - number of nodes in the graph, FIN - number of input features per node
+        # We apply the dropout to all of the input node features (as mentioned in the paper)
+        in_nodes_features = self.dropout(in_nodes_features)
+
+        # shape = (N, FIN) * (FIN, NH*FOUT) -> (N, NH, FOUT) where NH - number of heads, FOUT - num of output features
+        # We project the input node features into NH independent output features (one for each attention head)
+        nodes_features_proj = self.linear_proj(in_nodes_features).view(-1, self.num_of_heads, self.num_out_features)
+
+        nodes_features_proj = self.dropout(nodes_features_proj)  # in the official GAT imp they did dropout here as well
+
+        #
+        # Step 2: Edge attention calculation (using sum instead of bmm + additional permute calls - compared to imp1)
+        #
+
+        # Apply the scoring function (* represents element-wise (a.k.a. Hadamard) product) ### 哈达玛积, c_ij = a_ij × b_ij
+        # shape = (N, NH, FOUT) * (1, NH, FOUT) -> (N, NH, 1)
+        # Optimization note: torch.sum() is as performant as .sum() in my experiments
+        scores_source = torch.sum((nodes_features_proj * self.scoring_fn_source), dim=-1, keepdim=True)
+        scores_target = torch.sum((nodes_features_proj * self.scoring_fn_target), dim=-1, keepdim=True)
+
+        # src shape = (NH, N, 1) and trg shape = (NH, 1, N)
+        scores_source = scores_source.transpose(0, 1) ### (N, NH, 1) -> (NH, N, 1)  ### self_attn
+        scores_target = scores_target.permute(1, 2, 0) ### (N, NH, 1) -> (NH, 1, N) ### neigh_attn
+
+        # shape = (NH, N, 1) + (NH, 1, N) -> (NH, N, N) with the magic of automatic broadcast <3
+        # In Implementation 3 we are much smarter and don't have to calculate all NxN scores! (only E!)
+        # Tip: it's conceptually easier to understand what happens here if you delete the NH dimension
+        all_scores = self.leakyReLU(scores_source + scores_target) #### 注意力系数矩阵
+        # connectivity mask will put -inf on all locations where there are no edges, after applying the softmax
+        # this will result in attention scores being computed only for existing edges
+        """
+        all_attention_coefficients = self.softmax(all_scores + connectivity_mask) 
+        """
+
+        #+++++++++++++++++++++++++++++++++++++
+        """  改到score_target那里?? 这样应该是会削弱邻居的特征
+        WD 格式类似于:
+            tensor([[0.7408, 0.7408, 1.0000],
+                    [0.7408, 0.7408, 0.7408],
+                    [1.0000, 0.4066, 0.7408]])
+
+        WD_ij == 1.0 : 在exp之前 D_ij 为 0
+        """
+        ## 1. 筛除不相邻 or 跳数距离过大 的节点对
+
+        mask = connectivity_mask.clone().detach() ## 含自环
+        mask[mask < 1] = 0
+        mask[mask == 1] = -np.inf
+
+        dense1 = self.softmax(all_scores + mask)
+
+        ## 2. 跳数权重 (自身的不计算)
+
+        ### 把WD的对角线置1, 使之不影响self-attn
+        WD = connectivity_mask.clone().detach()
+        WD_n = WD.shape[0]
+        WD[range(WD_n), range(WD_n)] = 1
+
+        ### 原注意力 * 跳数权重
+        dense2 = self.softmax(dense1 * WD)
+
+        all_attention_coefficients = dense2
+        #+++++++++++++++++++++++++++++++++++++
+
+        #
+        # Step 3: Neighborhood aggregation (same as in imp1)
+        #
+
+        # batch matrix multiply, shape = (NH, N, N) * (NH, N, FOUT) -> (NH, N, FOUT)
+        out_nodes_features = torch.bmm(all_attention_coefficients, nodes_features_proj.transpose(0, 1))
+
+        # Note: watch out here I made a silly mistake of using reshape instead of permute thinking it will
+        # end up doing the same thing, but it didn't! The acc on Cora didn't go above 52%! (compared to reported ~82%)
+        # shape = (N, NH, FOUT)
+        out_nodes_features = out_nodes_features.permute(1, 0, 2)
+
+        #
+        # Step 4: Residual/skip connections, concat and bias (same as in imp1)
+        #
+
+        out_nodes_features = self.skip_concat_bias(all_attention_coefficients, in_nodes_features, out_nodes_features)
+        return (out_nodes_features, connectivity_mask)
 #
 # Helper functions
 #
@@ -538,6 +609,8 @@ def get_layer_type(layer_type):
         return GATLayerImp2
     elif layer_type == LayerType.IMP3:
         return GATLayerImp3
+    elif layer_type == LayerType.MyIMP2:
+        return GATLayerMyImp2
     else:
         raise Exception(f'Layer type {layer_type} not yet supported.')
 

@@ -54,13 +54,13 @@ from utils.constants import *
 from utils.visualizations import plot_in_out_degree_distributions, visualize_graph
 
 
-def get_dist_matrix(G, max_dist):
+def get_dist_matrix(G):
     """
     ## param
         G
-        max_dist
     ## return
-        返回距离小于max_dist的距离矩阵, 不含自环, dtype('float64')
+        - 返回距离矩阵, 不含自环
+        - np.ndarry, dtype('float64')
     """
     N = G.number_of_nodes()
     dist_matrix = np.zeros((N, N), dtype=float)
@@ -68,20 +68,80 @@ def get_dist_matrix(G, max_dist):
     spl = dict(nx.all_pairs_shortest_path_length(G)) ## dict
     for u in spl:
         for v in spl[u]:
-            if (u < v and spl[u][v] < max_dist): 
-                dist_matrix[u][v] = dist_matrix[v][u] = spl[u][v]
+            dist_matrix[u][v] = dist_matrix[v][u] = spl[u][v]
     
     return dist_matrix
+
+def get_tuple_matrix_with_limitation(dist_matrix, low, high, add_per, type):
+    N = high - low + 1
+    add_N = int(add_per * N)
+
+    # 生成正样本
+    if type == PosNegSample.Pos:
+        tuples = np.random.randint(low=low, high=high, size=(N + add_N, 3), dtype=int)
+
+        # 保证u < v
+        for i in range(len(tuples)):
+            tuples[i][2] = dist_matrix[tuples[i][0]][tuples[i][1]]
+            if (tuples[i][0] > tuples[i][1]):
+                tuples[i][0], tuples[i][1] = tuples[i][1], tuples[i][0]
+
+        # 按行去重: out = np.unique(in, axis = 0)
+        tuples = np.unique(tuples, axis=0)
+
+        while (tuples.shape[0] < N):
+            # 随机生成数据
+            adds = np.random.randint(low=0, high=N, size=(add_N, 3), dtype=int)
+            for i in range(len(adds)):
+                adds[i][2] = dist_matrix[adds[i][0]][adds[i][1]]
+                if (adds[i][0] > adds[i][1]):
+                    adds[i][0], adds[i][1] = adds[i][1], adds[i][0]
+            # 按行拼接
+            tuples = np.append(tuples, adds, axis=0)
+            # 去重
+            tuples = np.unique(tuples, axis=0)
+    # 负样本
+    else:
+        print(f'还没开始写负样本。。。')
+
+    return adds[: N]
+
+def get_tuple_matrix(dist_matrix, train_indices, val_indices, test_indices, basepath):
+    """
+    ## param
+        dist_matrix, train_indices, val_indices, test_indices
+    ## return
+        - tuple_matrix: 每行格式为(u, v, dist_uv)
+        - np.ndarray, dtype('int32'), shape = (N, 3) \n
+    """
+    # 先试图从文件中查询
+    tuple_path = os.path.join(CORA_PATH, 'tuples.txt')
+    if (os.path.exists(tuple_path)):
+        print(f'load tuples from {tuple_path}...')
+        tuple_matrix = np.loadtxt(tuple_path, dtype=int)
+    else:
+        add_per = 0.3
+        tuples_train = get_tuple_matrix_with_limitation(dist_matrix, int(train_indices[0]), int(train_indices[-1]), add_per,type=PosNegSample.Pos)
+        tuples_val = get_tuple_matrix_with_limitation(dist_matrix, int(val_indices[0]), int(val_indices[-1]), add_per, type=PosNegSample.Pos)
+        tuples_test = get_tuple_matrix_with_limitation(dist_matrix, int(test_indices[0]), int(test_indices[-1]), add_per, type=PosNegSample.Pos)
+        
+        tuple_matrix = np.concatenate((tuples_train, tuples_val, tuples_test), axis=0)
+        # 写入txt
+        print(f'save tuples to {tuple_path}...')
+        np.savetxt(tuple_path, tuple_matrix, fmt="%i %i %i")
+
+    return tuple_matrix
 
 def load_graph_data(training_config, device):
     """
     ## return 
     [0] node_features \n
     [1] node_labels \n
-    [2] topology: 邻接矩阵 or 跳数权重矩阵 \n
+    [2]* topology: 邻接矩阵 or 跳数权重矩阵 \n
     [3] train_indices \n
     [4] val_indices \n
     [5] test_indices \n
+    [6]+ tuple_matrix: shape = (N, 3),  每行内容为:(u, v, dist_uv)
     """    
     dataset_name = training_config['dataset_name'].lower()
     layer_type = training_config['layer_type']
@@ -91,13 +151,20 @@ def load_graph_data(training_config, device):
     newton_k = training_config['newton_k']
 
     if dataset_name == DatasetType.CORA.name.lower():  # Cora citation network
+        """
+        应该需要在这边修改一下数据读取方式，只需要保证各数据为np.ndarry即可
 
+        features: np.matrix(tmp_features)
+        adjacency_list_dict: collections.defaultdict, 字典
+
+        labels: np.ndarry, 无需更改
+        """
         # shape = (N, FIN), where N is the number of nodes and FIN is the number of input features
-        node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr'))
+        node_features_csr = pickle_read(os.path.join(CORA_PATH, 'node_features.csr')) ## sparse matrix of type '<class 'numpy.float32'>' with 49216 stored elements in Compressed Sparse Row format>
         # shape = (N, 1)
-        node_labels_npy = pickle_read(os.path.join(CORA_PATH, 'node_labels.npy'))
+        node_labels_npy = pickle_read(os.path.join(CORA_PATH, 'node_labels.npy')) ## numpy.ndarray
         # shape = (N, number of neighboring nodes) <- this is a dictionary not a matrix!
-        adjacency_list_dict = pickle_read(os.path.join(CORA_PATH, 'adjacency_list.dict'))
+        adjacency_list_dict = pickle_read(os.path.join(CORA_PATH, 'adjacency_list.dict')) ## collections.defaultdict
 
         # Normalize the features
         node_features_csr = normalize_features_sparse(node_features_csr)
@@ -108,26 +175,35 @@ def load_graph_data(training_config, device):
             # shape = (2, E), where E is the number of edges, and 2 for source and target nodes. Basically edge index
             # contains tuples of the format S->T, e.g. 0->3 means that node with id 0 points to a node with id 3.
             topology = build_edge_index(adjacency_list_dict, num_of_nodes, add_self_edges=True)      
-
-        elif layer_type == LayerType.IMP2 or layer_type == LayerType.IMP1:
+        
+        # ------
+        elif layer_type == LayerType.MyIMP2:
+            G = nx.from_dict_of_lists(adjacency_list_dict)
+            
+            ### 跳数矩阵 D
+            topology = get_dist_matrix(G, max_dist)
+            dist_matrix = topology.copy()
+            ### 超过max_dist的置零
+            # dists = topology[:, -1] ## 最后一列dist列
+            # dists[dists > max_dist] = 0 ## 超过max_dist的置零
+            # topology[:, -1] = dists
+            topology[:, -1][topology[:, -1] > max_dist] = 0
             """
+            在这边先给非对角线的节点加权 取softmax, 再增加自环?????
+            """
+            topology += np.identity(topology.shape[0])  # 增加自环
+
+            ### 跳数权重矩阵 WD
+            topology = np.exp(topology * -newton_k)  ### exp(-k(d_ij))
+        # ----
+        
+        elif layer_type == LayerType.IMP2 or layer_type == LayerType.IMP1:
             # adjacency matrix shape = (N, N)
             topology = nx.adjacency_matrix(nx.from_dict_of_lists(adjacency_list_dict)).todense().astype(np.float)
             topology += np.identity(topology.shape[0])  # add self connections
             topology[topology > 0] = 1  # multiple edges not allowed
             topology[topology == 0] = -np.inf  # make it a mask instead of adjacency matrix (used to mask softmax)
             topology[topology == 1] = 0
-            """
-            # --
-            G = nx.from_dict_of_lists(adjacency_list_dict)
-            
-            ### 跳数矩阵 D
-            topology = get_dist_matrix(G, max_dist)
-            topology += np.identity(topology.shape[0])  # 增加自环
-
-            ### 跳数权重矩阵 WD
-            topology = np.exp(topology * -newton_k)  ### exp(-k(d_ij))
-            # --
 
         else:
             raise Exception(f'Layer type {layer_type} not yet supported.')
@@ -151,7 +227,13 @@ def load_graph_data(training_config, device):
         val_indices = torch.arange(CORA_VAL_RANGE[0], CORA_VAL_RANGE[1], dtype=torch.long, device=device)
         test_indices = torch.arange(CORA_TEST_RANGE[0], CORA_TEST_RANGE[1], dtype=torch.long, device=device)
 
-        return node_features, node_labels, topology, train_indices, val_indices, test_indices
+        #+++
+        tuple_matrix = 0
+        if layer_type == LayerType.MyIMP2:
+            tuple_matrix = get_tuple_matrix(dist_matrix, train_indices, val_indices, test_indices, basepath=CORA_PATH)
+        #+++
+
+        return node_features, node_labels, topology, train_indices, val_indices, test_indices, tuple_matrix ## 额外增加了一个返回值
 
     elif dataset_name == DatasetType.PPI.name.lower():  # Protein-Protein Interaction dataset
 

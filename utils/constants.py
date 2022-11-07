@@ -40,6 +40,9 @@ class VisualizationType(enum.Enum):
     EMBEDDINGS = 1,
     ENTROPY = 2,
 
+class PosNegSample(enum.Enum):
+    Pos = 0,
+    Neg = 1
 
 writer = SummaryWriter()  # (tensorboard) writer will output to ./runs/ directory by default
 

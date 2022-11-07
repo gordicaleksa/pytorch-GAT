@@ -17,12 +17,16 @@ import utils.utils as utils
 def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, node_labels, edge_index, train_indices, val_indices, test_indices, patience_period, time_start):
 
     node_dim = 0  # node axis
-
+    ### node_labels shape = (N, 1)
+    ### train_indices = tensor([0, 1, ..., 139])    这些区间范围在utils.constant.py中定义
+    ### val_indices = tensor([140, ..., 639])
+    ### test_indices = tensor([1708, ..., 2707])  
     train_labels = node_labels.index_select(node_dim, train_indices)
     val_labels = node_labels.index_select(node_dim, val_indices)
     test_labels = node_labels.index_select(node_dim, test_indices)
 
-    # node_features shape = (N, FIN), edge_index shape = (2, E)
+    # node_features shape = (N, FIN), edge_index shape = (2, E) --- [2, E]可能是指impl3
+    ###           [2708, 1433]   [2708, 2708] --- 1433: input feature
     graph_data = (node_features, edge_index)  # I pack data into tuples because GAT uses nn.Sequential which requires it
 
     def get_node_indices(phase):
@@ -57,7 +61,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         # Do a forwards pass and extract only the relevant node scores (train/val or test ones)
         # Note: [0] just extracts the node_features part of the data (index 1 contains the edge_index)
         # shape = (N, C) where N is the number of nodes in the split (train/val/test) and C is the number of classes
-        nodes_unnormalized_scores = gat(graph_data)[0].index_select(node_dim, node_indices)
+        nodes_unnormalized_scores = gat(graph_data)[0].index_select(node_dim, node_indices) ### 获取训练集/验证集/测试集样本的emb
 
         # Example: let's take an output for a single node on Cora - it's a vector of size 7 and it contains unnormalized
         # scores like: V = [-1.393,  3.0765, -2.4445,  9.6219,  2.1658, -5.5243, -4.6247]
@@ -130,7 +134,7 @@ def train_gat_cora(config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # checking whether you have a GPU, I hope so!
 
     # Step 1: load the graph data
-    node_features, node_labels, edge_index, train_indices, val_indices, test_indices = load_graph_data(config, device)
+    node_features, node_labels, edge_index, train_indices, val_indices, test_indices, tuple_matrix = load_graph_data(config, device) ### 新增tuple_matrix
 
     # Step 2: prepare the model
     gat = GAT(
@@ -216,18 +220,18 @@ def get_training_args():
     args = parser.parse_args()
 
     # Model architecture related
+    out_dim = 7 ### = max_dist + 1
     gat_config = {
         "num_of_layers": 2,  # GNNs, contrary to CNNs, are often shallow (it ultimately depends on the graph properties)
         "num_heads_per_layer": [8, 1],
-        "num_features_per_layer": [CORA_NUM_INPUT_FEATURES, 8, CORA_NUM_CLASSES],
+        "num_features_per_layer": [CORA_NUM_INPUT_FEATURES, 8, out_dim], ### CORA_NUM_CLASSES
         "add_skip_connection": False,  # hurts perf on Cora
         "bias": True,  # result is not so sensitive to bias
         "dropout": 0.6,  # result is sensitive to dropout
-        #"layer_type": LayerType.IMP3  # fastest implementation enabled by default
-        "layer_type": LayerType.IMP2,
+        "layer_type": LayerType.IMP2,  # fastest implementation enabled by default
         #++++++++++++++++++++++++++
-        "max_dist": 3,
-        "newton_k": 0.3
+        "max_dist": out_dim - 1,
+        "newton_k": 0
     }
 
     # Wrapping training configuration into a dictionary

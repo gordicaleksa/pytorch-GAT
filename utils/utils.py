@@ -41,6 +41,8 @@ def name_to_layer_type(name):
         return LayerType.IMP2
     elif name == LayerType.IMP3.name:
         return LayerType.IMP3
+    elif name == LayerType.MyIMP2.name:
+        return LayerType.MyIMP2
     else:
         raise Exception(f'Name {name} not supported.')
 

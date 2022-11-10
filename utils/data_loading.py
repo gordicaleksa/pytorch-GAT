@@ -73,7 +73,11 @@ def get_dist_matrix(G):
     return dist_matrix
 
 def get_tuple_matrix_with_limitation(dist_matrix, low, high, add_per, type):
+    """
+    随机high - low + 1条生成idx最小值为low, 最大值为high - 1的跳数矩阵
+    """    
     N = high - low + 1
+    
     add_N = int(add_per * N)
 
     # 生成正样本
@@ -104,7 +108,7 @@ def get_tuple_matrix_with_limitation(dist_matrix, low, high, add_per, type):
     else:
         print(f'还没开始写负样本。。。')
 
-    return adds[: N]
+    return tuples[: N]
 
 def get_tuple_matrix(dist_matrix, train_indices, val_indices, test_indices, basepath):
     """
@@ -181,7 +185,7 @@ def load_graph_data(training_config, device):
             G = nx.from_dict_of_lists(adjacency_list_dict)
             
             ### 跳数矩阵 D
-            topology = get_dist_matrix(G, max_dist)
+            topology = get_dist_matrix(G)
             dist_matrix = topology.copy()
             ### 超过max_dist的置零
             # dists = topology[:, -1] ## 最后一列dist列
@@ -229,8 +233,18 @@ def load_graph_data(training_config, device):
 
         #+++
         tuple_matrix = 0
+
         if layer_type == LayerType.MyIMP2:
             tuple_matrix = get_tuple_matrix(dist_matrix, train_indices, val_indices, test_indices, basepath=CORA_PATH)
+
+        # --- 测试用, 测完应当删除 ---
+        else: 
+            G = nx.from_dict_of_lists(adjacency_list_dict)
+            dist_matrix = get_dist_matrix(G)
+            tuple_matrix = get_tuple_matrix(dist_matrix, train_indices, val_indices, test_indices, basepath=CORA_PATH)
+        # --- 测试用, 测完应当删除 ---
+
+        tuple_matrix = torch.tensor(tuple_matrix, dtype=torch.int64, device=device)
         #+++
 
         return node_features, node_labels, topology, train_indices, val_indices, test_indices, tuple_matrix ## 额外增加了一个返回值

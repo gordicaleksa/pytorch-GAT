@@ -5,7 +5,7 @@ import time
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-
+import numpy as np
 
 from models.definitions.GAT import GAT
 from utils.data_loading import load_graph_data
@@ -14,8 +14,7 @@ import utils.utils as utils
 
 
 # Simple decorator function so that I don't have to pass arguments that don't change from epoch to epoch
-def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, node_labels, edge_index, train_indices, val_indices, test_indices, patience_period, time_start):
-
+def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, node_labels, edge_index, train_indices, val_indices, test_indices, patience_period, time_start, tuple_matrix, device):
     node_dim = 0  # node axis
     ### node_labels shape = (N, 1)
     ### train_indices = tensor([0, 1, ..., 139])    这些区间范围在utils.constant.py中定义
@@ -45,6 +44,56 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         else:
             return test_labels
 
+    def get_tuple_loss_input(nodes_unnormalized_scores, node_indices, device):
+        """
+        ## param
+            对应训练集/验证集/测试集节点的嵌入: nodes_unnormalized_scores \n 对应的节点索引列表:node_indices \n device
+        
+        ## return
+            对应索引的tuples的向量和 tuple_unnormalized_scores, shape = (N, C) -- 向量求和? 或者输入64维然后以某种方式压缩成k维？
+            这些tuples的实际跳数距离 true_dist, shape = (N, 1)
+        """            
+        # 获取对应行数的tuple_matrix
+        tuples = tuple_matrix.index_select(0, node_indices)
+        true_dist_label = tuple_matrix[:, -1].index_select(0, node_indices)
+        """
+        假设node_indices = tensor([100, 101, ..., 150]), base_idx = 100
+
+        tuple_matrix第100行为: (105, 121, 2)
+        u = 105, v = 121, d = 2
+        
+        abs_u = u - base_idx = 105 - 100 = 5
+        abs_v = v - base_idx = 121 - 100 = 21
+
+        分别对应tuples[: 5], tuples[: 21]行的emb
+        """
+        base_idx = node_indices[0]
+
+        # 预测的labels: [u + v], shape = (N, C)
+        N, C = nodes_unnormalized_scores.shape
+        tuples_unnormalized_scores = torch.zeros(size=(N, C), device=device)
+
+        for i in range(N):
+            abs_u = tuples[i][0] - base_idx # tensor
+            abs_v = tuples[i][1] - base_idx 
+            try:
+                emb_u = nodes_unnormalized_scores[abs_u]
+                emb_v = nodes_unnormalized_scores[abs_v]
+            except Exception as e:
+                print('base_idx =', base_idx)
+                print('abs_u =', abs_u)
+                print('emb.shape =', nodes_unnormalized_scores.shape)
+                print(e)
+                
+            tuples_unnormalized_scores[i] = emb_u + emb_v
+
+        # 超过max_dist的置为max_dist
+        max_dist = config['max_dist']
+        true_dist_label[true_dist_label > max_dist] = max_dist
+
+        return tuples_unnormalized_scores, true_dist_label
+
+
     def main_loop(phase, epoch=0):
         global BEST_VAL_PERF, BEST_VAL_LOSS, PATIENCE_CNT, writer
 
@@ -61,8 +110,18 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         # Do a forwards pass and extract only the relevant node scores (train/val or test ones)
         # Note: [0] just extracts the node_features part of the data (index 1 contains the edge_index)
         # shape = (N, C) where N is the number of nodes in the split (train/val/test) and C is the number of classes
+        
+        """
+        softmax = nn.Softmax(dim=1)
+        all_emb = gat(graph_data)[0]
+        np.savetxt('all_emb.txt', softmax(all_emb).detach().numpy(), fmt="%-1.2f")
+        """
         nodes_unnormalized_scores = gat(graph_data)[0].index_select(node_dim, node_indices) ### 获取训练集/验证集/测试集样本的emb
+        tuples_unnormalized_scores, true_dist_label = get_tuple_loss_input(nodes_unnormalized_scores, node_indices, device)
 
+        softmax = nn.Softmax(dim=1)
+        np.savetxt('tuples_scores.txt', softmax(tuples_unnormalized_scores).detach().numpy(), fmt="%-1.3f")
+        
         # Example: let's take an output for a single node on Cora - it's a vector of size 7 and it contains unnormalized
         # scores like: V = [-1.393,  3.0765, -2.4445,  9.6219,  2.1658, -5.5243, -4.6247]
         # What PyTorch's cross entropy loss does is for every such vector it first applies a softmax, and so we'll
@@ -70,7 +129,8 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         # secondly, whatever the correct class is (say it's 3), it will then take the element at position 3,
         # 0.99797 in this case, and the loss will be -log(0.99797). It does this for every node and applies a mean.
         # You can see that as the probability of the correct class for most nodes approaches 1 we get to 0 loss! <3
-        loss = cross_entropy_loss(nodes_unnormalized_scores, gt_node_labels)
+        #loss = cross_entropy_loss(nodes_unnormalized_scores, gt_node_labels)
+        loss = cross_entropy_loss(tuples_unnormalized_scores, true_dist_label)
 
         if phase == LoopPhase.TRAIN:
             optimizer.zero_grad()  # clean the trainable weights gradients in the computational graph (.grad fields)
@@ -165,7 +225,10 @@ def train_gat_cora(config):
         val_indices,
         test_indices,
         config['patience_period'],
-        time.time())
+        time.time(),
+        #++++ 
+        tuple_matrix,
+        device)
 
     BEST_VAL_PERF, BEST_VAL_LOSS, PATIENCE_CNT = [0, 0, 0]  # reset vars used for early stopping
 
@@ -204,7 +267,7 @@ def get_training_args():
 
     # Training related
     parser.add_argument("--num_of_epochs", type=int, help="number of training epochs", default=10000)
-    parser.add_argument("--patience_period", type=int, help="number of epochs with no improvement on val before terminating", default=1000)
+    parser.add_argument("--patience_period", type=int, help="number of epochs with no improvement on val before terminating", default=1000) # default=1000
     parser.add_argument("--lr", type=float, help="model learning rate", default=5e-3)
     parser.add_argument("--weight_decay", type=float, help="L2 regularization on model weights", default=5e-4)
     parser.add_argument("--should_test", action='store_true', help='should test the model on the test dataset? (no by default)')
@@ -228,7 +291,7 @@ def get_training_args():
         "add_skip_connection": False,  # hurts perf on Cora
         "bias": True,  # result is not so sensitive to bias
         "dropout": 0.6,  # result is sensitive to dropout
-        "layer_type": LayerType.IMP2,  # fastest implementation enabled by default
+        "layer_type": LayerType.IMP3,  # fastest implementation enabled by default
         #++++++++++++++++++++++++++
         "max_dist": out_dim - 1,
         "newton_k": 0

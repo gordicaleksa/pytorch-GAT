@@ -44,52 +44,56 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         else:
             return test_labels
 
-    def get_tuple_loss_input(nodes_unnormalized_scores, node_indices, device):
+    def get_tuple_loss_input(all_nodes_unnormalized_scores, node_indices, multi_times, device):
         """
         ## param
             对应训练集/验证集/测试集节点的嵌入: nodes_unnormalized_scores \n 对应的节点索引列表:node_indices \n device
         
         ## return
             对应索引的tuples的向量和 tuple_unnormalized_scores, shape = (N, C) -- 向量求和? 或者输入64维然后以某种方式压缩成k维？
-            这些tuples的实际跳数距离 true_dist, shape = (N, 1)
+            这些tuples的实际跳数距离 true_dist, shape = (multi_per * N)
         """            
+        # 扩大node_indices  e.g. [1, ..., 9] -> [1 * multi_per, ..., (9 + 1) * multi_per] -> [10, ..., 99]
+        start_idx = int(node_indices[0])
+        end_idx = int(node_indices[-1])
+        node_indices_ext = torch.arange(start = start_idx * multi_times, end = (end_idx + 1) * multi_times, step = 1, dtype = int)
+
         # 获取对应行数的tuple_matrix
-        tuples = tuple_matrix.index_select(0, node_indices)
-        true_dist_label = tuple_matrix[:, -1].index_select(0, node_indices)
-        """
-        假设node_indices = tensor([100, 101, ..., 150]), base_idx = 100
-
-        tuple_matrix第100行为: (105, 121, 2)
-        u = 105, v = 121, d = 2
+        tuples = tuple_matrix.index_select(0, node_indices_ext)
+        true_dist_label = tuple_matrix[:, -1].index_select(0, node_indices_ext)
         
-        abs_u = u - base_idx = 105 - 100 = 5
-        abs_v = v - base_idx = 121 - 100 = 21
+        # 预测的labels: [u + v], shape = (multi_times * N, C)
+        N = node_indices.shape[0]
+        C = all_nodes_unnormalized_scores.shape[1]
+        MN = multi_times * N
+        tuples_unnormalized_scores = torch.zeros(size=(MN, C), device=device)
 
-        分别对应tuples[: 5], tuples[: 21]行的emb
-        """
-        base_idx = node_indices[0]
-
-        # 预测的labels: [u + v], shape = (N, C)
-        N, C = nodes_unnormalized_scores.shape
-        tuples_unnormalized_scores = torch.zeros(size=(N, C), device=device)
-
-        for i in range(N):
-            abs_u = tuples[i][0] - base_idx # tensor
-            abs_v = tuples[i][1] - base_idx 
+        for i in range(MN):
+            u = tuples[i][0] # tensor
+            v = tuples[i][1]
             try:
-                emb_u = nodes_unnormalized_scores[abs_u]
-                emb_v = nodes_unnormalized_scores[abs_v]
+                emb_u = all_nodes_unnormalized_scores[u]
+                emb_v = all_nodes_unnormalized_scores[v]
             except Exception as e:
-                print('base_idx =', base_idx)
-                print('abs_u =', abs_u)
-                print('emb.shape =', nodes_unnormalized_scores.shape)
+                print('u =', tuples[i][0])
+                print('v =', tuples[i][1])
+                print('emb.shape =', node_features.shape)
                 print(e)
                 
             tuples_unnormalized_scores[i] = emb_u + emb_v
 
         # 超过max_dist的置为max_dist
         max_dist = config['max_dist']
-        true_dist_label[true_dist_label > max_dist] = max_dist
+        true_dist_label[true_dist_label > max_dist] = max_dist # torch.Size([28000])
+        true_dist_label[true_dist_label == 0] = max_dist # dist_matrix中为0的也应该置为max_dist!!!!!!!!!!!
+
+        
+        ## 把tuple的第0列置为0??
+        #tuples_unnormalized_scores[:, 0] = 0
+
+        #pred_dist_label = torch.argmax(tuples_unnormalized_scores, dim=1)
+        #to_write = torch.cat((true_dist_label[:30], pred_dist_label[:30]), 0).reshape(2, 30)
+        #np.savetxt('compare.csv', to_write.detach().numpy(), delimiter=", ", fmt="%i")
 
         return tuples_unnormalized_scores, true_dist_label
 
@@ -116,12 +120,21 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         all_emb = gat(graph_data)[0]
         np.savetxt('all_emb.txt', softmax(all_emb).detach().numpy(), fmt="%-1.2f")
         """
-        nodes_unnormalized_scores = gat(graph_data)[0].index_select(node_dim, node_indices) ### 获取训练集/验证集/测试集样本的emb
-        tuples_unnormalized_scores, true_dist_label = get_tuple_loss_input(nodes_unnormalized_scores, node_indices, device)
+        #nodes_unnormalized_scores = gat(graph_data)[0].index_select(node_dim, node_indices) ### 获取训练集/验证集/测试集样本的emb
+        all_nodes_unnormalized_scores = gat(graph_data)[0]
+        nodes_unnormalized_scores = all_nodes_unnormalized_scores.index_select(node_dim, node_indices)
 
-        softmax = nn.Softmax(dim=1)
-        np.savetxt('tuples_scores.txt', softmax(tuples_unnormalized_scores).detach().numpy(), fmt="%-1.3f")
+        tuples_unnormalized_scores, true_dist_label = get_tuple_loss_input(all_nodes_unnormalized_scores, node_indices, multi_times=1, device=device)
+
         
+        
+        softmax = nn.Softmax(dim=1)
+        softmax_res = softmax(tuples_unnormalized_scores)
+        
+        #print('tuples_unnormalized_scores.shape =', tuples_unnormalized_scores.shape)
+        #print('softmax_res.shape =', softmax_res.shape)
+        np.savetxt('tuples_scores.txt', softmax(tuples_unnormalized_scores).detach().numpy(), fmt="%-1.3f")
+             
         # Example: let's take an output for a single node on Cora - it's a vector of size 7 and it contains unnormalized
         # scores like: V = [-1.393,  3.0765, -2.4445,  9.6219,  2.1658, -5.5243, -4.6247]
         # What PyTorch's cross entropy loss does is for every such vector it first applies a softmax, and so we'll
@@ -131,6 +144,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         # You can see that as the probability of the correct class for most nodes approaches 1 we get to 0 loss! <3
         #loss = cross_entropy_loss(nodes_unnormalized_scores, gt_node_labels)
         loss = cross_entropy_loss(tuples_unnormalized_scores, true_dist_label)
+        loss.requires_grad_(True) ### !!!! 不加会报错
 
         if phase == LoopPhase.TRAIN:
             optimizer.zero_grad()  # clean the trainable weights gradients in the computational graph (.grad fields)
@@ -267,7 +281,7 @@ def get_training_args():
 
     # Training related
     parser.add_argument("--num_of_epochs", type=int, help="number of training epochs", default=10000)
-    parser.add_argument("--patience_period", type=int, help="number of epochs with no improvement on val before terminating", default=1000) # default=1000
+    parser.add_argument("--patience_period", type=int, help="number of epochs with no improvement on val before terminating", default=300) # default=1000
     parser.add_argument("--lr", type=float, help="model learning rate", default=5e-3)
     parser.add_argument("--weight_decay", type=float, help="L2 regularization on model weights", default=5e-4)
     parser.add_argument("--should_test", action='store_true', help='should test the model on the test dataset? (no by default)')
@@ -283,7 +297,7 @@ def get_training_args():
     args = parser.parse_args()
 
     # Model architecture related
-    out_dim = 7 ### = max_dist + 1
+    out_dim = 10 ### = max_dist + 1
     gat_config = {
         "num_of_layers": 2,  # GNNs, contrary to CNNs, are often shallow (it ultimately depends on the graph properties)
         "num_heads_per_layer": [8, 1],

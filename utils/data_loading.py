@@ -72,11 +72,11 @@ def get_dist_matrix(G):
     
     return dist_matrix
 
-def get_tuple_matrix_with_limitation(dist_matrix, low, high, add_per, type):
+def get_tuple_matrix_with_limitation(dist_matrix, low, high, add_per, multi_per, type):
     """
     随机high - low + 1条生成idx最小值为low, 最大值为high - 1的跳数矩阵
     """    
-    N = high - low + 1
+    N = (high - low + 1) * multi_per
     
     add_N = int(add_per * N)
 
@@ -116,22 +116,23 @@ def get_tuple_matrix(dist_matrix, train_indices, val_indices, test_indices, base
         dist_matrix, train_indices, val_indices, test_indices
     ## return
         - tuple_matrix: 每行格式为(u, v, dist_uv)
-        - np.ndarray, dtype('int32'), shape = (N, 3) \n
+        - np.ndarray, dtype('int32'), shape = (multi_per * N, 3) \n
     """
     # 先试图从文件中查询
-    tuple_path = os.path.join(CORA_PATH, 'tuples.txt')
+    tuple_path = os.path.join(basepath, 'tuples.txt')
     if (os.path.exists(tuple_path)):
         print(f'load tuples from {tuple_path}...')
         tuple_matrix = np.loadtxt(tuple_path, dtype=int)
     else:
         add_per = 0.3
-        tuples_train = get_tuple_matrix_with_limitation(dist_matrix, int(train_indices[0]), int(train_indices[-1]), add_per,type=PosNegSample.Pos)
-        tuples_val = get_tuple_matrix_with_limitation(dist_matrix, int(val_indices[0]), int(val_indices[-1]), add_per, type=PosNegSample.Pos)
-        tuples_test = get_tuple_matrix_with_limitation(dist_matrix, int(test_indices[0]), int(test_indices[-1]), add_per, type=PosNegSample.Pos)
+        multi_per = 100
+        tuples_train = get_tuple_matrix_with_limitation(dist_matrix, int(train_indices[0]), int(train_indices[-1]), add_per, multi_per, type=PosNegSample.Pos)
+        tuples_val = get_tuple_matrix_with_limitation(dist_matrix, int(val_indices[0]), int(val_indices[-1]), add_per, multi_per, type=PosNegSample.Pos)
+        tuples_test = get_tuple_matrix_with_limitation(dist_matrix, int(test_indices[0]), int(test_indices[-1]), add_per, multi_per, type=PosNegSample.Pos)
         
         tuple_matrix = np.concatenate((tuples_train, tuples_val, tuples_test), axis=0)
         # 写入txt
-        print(f'save tuples to {tuple_path}...')
+        print(f'### save tuples to {tuple_path}...')
         np.savetxt(tuple_path, tuple_matrix, fmt="%i %i %i")
 
     return tuple_matrix

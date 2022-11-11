@@ -68,7 +68,7 @@ def get_dist_matrix(G):
     spl = dict(nx.all_pairs_shortest_path_length(G)) ## dict
     for u in spl:
         for v in spl[u]:
-            dist_matrix[u][v] = dist_matrix[v][u] = spl[u][v]
+            dist_matrix[u][v] = dist_matrix[v][u] = spl[u][v] ## int(spl[u][v] // 2) ## 试图缩小距离，把spl[u][v]压缩为1/2，然而最后的scores还是处于一个递增状态，暂时不知道如何处理
     
     return dist_matrix
 

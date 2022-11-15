@@ -72,10 +72,13 @@ def get_dist_matrix(G):
     
     return dist_matrix
 
-def get_tuple_matrix_with_limitation(dist_matrix, low, high, add_per, multi_per, type):
+def get_tuple_matrix_with_limitation(dist_matrix, low, high, type):
     """
     随机high - low + 1条生成idx最小值为low, 最大值为high - 1的跳数矩阵
-    """    
+    """
+    multi_per = CORA_MULTI_TIMES
+    add_per = CORA_ADD_PER
+
     N = (high - low + 1) * multi_per
     
     add_N = int(add_per * N)
@@ -107,6 +110,16 @@ def get_tuple_matrix_with_limitation(dist_matrix, low, high, add_per, multi_per,
     # 负样本
     else:
         print(f'还没开始写负样本。。。')
+        cnt = [0] * 16
+
+    # cnt = [0] * 16
+    # for i in range(N):
+    #     tmp = tuples[i][2] if tuples[i][2] <= 15 else 15
+    #     cnt[tmp] += 1
+
+    # for i in range(16):
+    #     print('dist =',i, ': ', cnt[i],'个 -- {:.2%}'.format(cnt[i]/N))
+    # print('================')  
 
     return tuples[: N]
 
@@ -115,27 +128,28 @@ def get_tuple_matrix(dist_matrix, train_indices, val_indices, test_indices, base
     ## param
         dist_matrix, train_indices, val_indices, test_indices
     ## return
-        - tuple_matrix: 每行格式为(u, v, dist_uv)
-        - np.ndarray, dtype('int32'), shape = (multi_per * N, 3) \n
+        (tuples_train, tuples_val, tuples_test)
+        // - tuple_matrix: 每行格式为(u, v, dist_uv)
+        // - np.ndarray, dtype('int32'), shape = (multi_per * N, 3) \n
     """
     # 先试图从文件中查询
-    tuple_path = os.path.join(basepath, 'tuples.txt')
-    if (os.path.exists(tuple_path)):
-        print(f'load tuples from {tuple_path}...')
-        tuple_matrix = np.loadtxt(tuple_path, dtype=int)
-    else:
-        add_per = 0.3
-        multi_per = 100
-        tuples_train = get_tuple_matrix_with_limitation(dist_matrix, int(train_indices[0]), int(train_indices[-1]), add_per, multi_per, type=PosNegSample.Pos)
-        tuples_val = get_tuple_matrix_with_limitation(dist_matrix, int(val_indices[0]), int(val_indices[-1]), add_per, multi_per, type=PosNegSample.Pos)
-        tuples_test = get_tuple_matrix_with_limitation(dist_matrix, int(test_indices[0]), int(test_indices[-1]), add_per, multi_per, type=PosNegSample.Pos)
-        
-        tuple_matrix = np.concatenate((tuples_train, tuples_val, tuples_test), axis=0)
-        # 写入txt
-        print(f'### save tuples to {tuple_path}...')
-        np.savetxt(tuple_path, tuple_matrix, fmt="%i %i %i")
+    # tuple_path = os.path.join(basepath, 'tuples.txt')
+    # if (os.path.exists(tuple_path)):
+    #     print(f'load tuples from {tuple_path}...')
+    #     tuple_matrix = np.loadtxt(tuple_path, dtype=int)
+    # else:
 
-    return tuple_matrix
+    tuples_train = get_tuple_matrix_with_limitation(dist_matrix, int(train_indices[0]), int(train_indices[-1]), type=PosNegSample.Pos) ## (140000, 3)
+    tuples_val = get_tuple_matrix_with_limitation(dist_matrix, int(val_indices[0]), int(val_indices[-1]), type=PosNegSample.Pos) ## (50000, 3)
+    tuples_test = get_tuple_matrix_with_limitation(dist_matrix, int(test_indices[0]), int(test_indices[-1]), type=PosNegSample.Pos) ## (80800, 3)
+    
+    #tuple_matrix = np.concatenate((tuples_train, tuples_val, tuples_test), axis=0)
+    # 写入txt
+    #print(f'### save tuples to {tuple_path}...')
+    #np.savetxt(tuple_path, tuple_matrix, fmt="%i %i %i")
+
+    #return tuple_matrix
+    return tuples_train, tuples_val, tuples_test
 
 def load_graph_data(training_config, device):
     """
@@ -233,19 +247,22 @@ def load_graph_data(training_config, device):
         test_indices = torch.arange(CORA_TEST_RANGE[0], CORA_TEST_RANGE[1], dtype=torch.long, device=device)
 
         #+++
-        tuple_matrix = 0
+        tuples_train, tuples_val, tuples_test = 0, 0, 0
 
         if layer_type == LayerType.MyIMP2:
-            tuple_matrix = get_tuple_matrix(dist_matrix, train_indices, val_indices, test_indices, basepath=CORA_PATH)
+            tuples_train, tuples_val, tuples_test = get_tuple_matrix(dist_matrix, train_indices, val_indices, test_indices, basepath=CORA_PATH)
 
         # --- 测试用, 测完应当删除 ---
         else: 
             G = nx.from_dict_of_lists(adjacency_list_dict)
             dist_matrix = get_dist_matrix(G)
-            tuple_matrix = get_tuple_matrix(dist_matrix, train_indices, val_indices, test_indices, basepath=CORA_PATH)
+            tuples_train, tuples_val, tuples_test = get_tuple_matrix(dist_matrix, train_indices, val_indices, test_indices, basepath=CORA_PATH)
         # --- 测试用, 测完应当删除 ---
-
-        tuple_matrix = torch.tensor(tuple_matrix, dtype=torch.int64, device=device)
+        tuples_train = torch.tensor(tuples_train, dtype=torch.int64, device=device)
+        tuples_val = torch.tensor(tuples_val, dtype=torch.int64, device=device)
+        tuples_test = torch.tensor(tuples_test, dtype=torch.int64, device=device)
+        tuple_matrix = (tuples_train, tuples_val, tuples_test)
+        ##tuple_matrix = torch.tensor(tuple_matrix, dtype=torch.int64, device=device)
         #+++
 
         return node_features, node_labels, topology, train_indices, val_indices, test_indices, tuple_matrix ## 额外增加了一个返回值

@@ -44,7 +44,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         else:
             return test_labels
 
-    def get_tuple_loss_input(all_nodes_unnormalized_scores, node_indices, multi_times, device):
+    def get_tuple_loss_input(phase, all_nodes_unnormalized_scores, device):
         """
         ## param
             对应训练集/验证集/测试集节点的嵌入: nodes_unnormalized_scores \n 对应的节点索引列表:node_indices \n device
@@ -54,18 +54,25 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
             这些tuples的实际跳数距离 true_dist, shape = (multi_per * N)
         """            
         # 扩大node_indices  e.g. [1, ..., 9] -> [1 * multi_per, ..., (9 + 1) * multi_per] -> [10, ..., 99]
-        start_idx = int(node_indices[0])
-        end_idx = int(node_indices[-1])
-        node_indices_ext = torch.arange(start = start_idx * multi_times, end = (end_idx + 1) * multi_times, step = 1, dtype = int)
-
+        # start_idx = int(node_indices[0])
+        # end_idx = int(node_indices[-1])
+        # node_indices_ext = torch.arange(start = start_idx * multi_times, end = (end_idx + 1) * multi_times, step = 1, dtype = int)
         # 获取对应行数的tuple_matrix
-        tuples = tuple_matrix.index_select(0, node_indices_ext)
-        true_dist_label = tuple_matrix[:, -1].index_select(0, node_indices_ext)
+        # tuples = tuple_matrix.index_select(0, node_indices_ext)
+        if phase == LoopPhase.TRAIN:
+            tuples = tuple_matrix[0]
+        elif phase == LoopPhase.VAL:
+            tuples = tuple_matrix[1]
+        else:
+            tuples = tuple_matrix[2]
+
+        #true_dist_label = tuple_matrix[:, -1].index_select(0, node_indices_ext)
+        true_dist_label = tuples[:, -1]
         
         # 预测的labels: [u + v], shape = (multi_times * N, C)
-        N = node_indices.shape[0]
+        #N = tuples.shape[0]
         C = all_nodes_unnormalized_scores.shape[1]
-        MN = multi_times * N
+        MN = tuples.shape[0]
         tuples_unnormalized_scores = torch.zeros(size=(MN, C), device=device)
 
         for i in range(MN):
@@ -82,19 +89,22 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
                 
             tuples_unnormalized_scores[i] = emb_u + emb_v
 
-        # 超过max_dist的置为max_dist
+        # 超过max_dist的置为max_dist 
+        #### 改为置为0
         max_dist = config['max_dist']
-        true_dist_label[true_dist_label > max_dist] = max_dist # torch.Size([28000])
-        true_dist_label[true_dist_label == 0] = max_dist # dist_matrix中为0的也应该置为max_dist!!!!!!!!!!!
+        true_dist_label[true_dist_label > max_dist] = 0 # torch.Size([28000])
+        ##true_dist_label[true_dist_label == 0] = max_dist # dist_matrix中为0的也应该置为max_dist!!!!!!!!!!!
 
         
         ## 把tuple的第0列置为0??
-        #tuples_unnormalized_scores[:, 0] = 0
+        #tuples_unnormalized_scores[:, 0] = -np.inf
 
-        #pred_dist_label = torch.argmax(tuples_unnormalized_scores, dim=1)
-        #to_write = torch.cat((true_dist_label[:30], pred_dist_label[:30]), 0).reshape(2, 30)
-        #np.savetxt('compare.csv', to_write.detach().numpy(), delimiter=", ", fmt="%i")
-
+        n = 50
+        pred_dist_label = torch.argmax(tuples_unnormalized_scores, dim=1)
+        to_write = torch.cat((pred_dist_label[:n], true_dist_label[:n]), 0).reshape(2, n)
+        np.savetxt('compare.csv', to_write.detach().numpy().T, delimiter=", ", fmt="%i")
+        np.savetxt('tuples_scores_before.csv', tuples_unnormalized_scores.detach().numpy(), delimiter=", ", fmt="%-1.3f")
+        #print('End of Func [get_tuple_loss_input]')
         return tuples_unnormalized_scores, true_dist_label
 
 
@@ -124,12 +134,11 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         all_nodes_unnormalized_scores = gat(graph_data)[0]
         nodes_unnormalized_scores = all_nodes_unnormalized_scores.index_select(node_dim, node_indices)
 
-        tuples_unnormalized_scores, true_dist_label = get_tuple_loss_input(all_nodes_unnormalized_scores, node_indices, multi_times=1, device=device)
+        tuples_unnormalized_scores, true_dist_label = get_tuple_loss_input(phase, all_nodes_unnormalized_scores, device=device)
 
         
         
         softmax = nn.Softmax(dim=1)
-        softmax_res = softmax(tuples_unnormalized_scores)
         
         #print('tuples_unnormalized_scores.shape =', tuples_unnormalized_scores.shape)
         #print('softmax_res.shape =', softmax_res.shape)
@@ -157,7 +166,8 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         # Compare those to true (ground truth) labels and find the fraction of correct predictions -> accuracy metric.
         class_predictions = torch.argmax(nodes_unnormalized_scores, dim=-1)
         accuracy = torch.sum(torch.eq(class_predictions, gt_node_labels).long()).item() / len(gt_node_labels)
-
+        tuple_dist_predictions = torch.argmax(tuples_unnormalized_scores, dim=-1)
+        accuracy = torch.sum(torch.eq(tuple_dist_predictions, true_dist_label).long()).item() / len(true_dist_label)
         #
         # Logging
         #
@@ -281,7 +291,7 @@ def get_training_args():
 
     # Training related
     parser.add_argument("--num_of_epochs", type=int, help="number of training epochs", default=10000)
-    parser.add_argument("--patience_period", type=int, help="number of epochs with no improvement on val before terminating", default=300) # default=1000
+    parser.add_argument("--patience_period", type=int, help="number of epochs with no improvement on val before terminating", default=1000) # default=1000
     parser.add_argument("--lr", type=float, help="model learning rate", default=5e-3)
     parser.add_argument("--weight_decay", type=float, help="L2 regularization on model weights", default=5e-4)
     parser.add_argument("--should_test", action='store_true', help='should test the model on the test dataset? (no by default)')
@@ -297,7 +307,7 @@ def get_training_args():
     args = parser.parse_args()
 
     # Model architecture related
-    out_dim = 10 ### = max_dist + 1
+    out_dim = 11 ### = max_dist + 1
     gat_config = {
         "num_of_layers": 2,  # GNNs, contrary to CNNs, are often shallow (it ultimately depends on the graph properties)
         "num_heads_per_layer": [8, 1],
@@ -306,6 +316,7 @@ def get_training_args():
         "bias": True,  # result is not so sensitive to bias
         "dropout": 0.6,  # result is sensitive to dropout
         "layer_type": LayerType.IMP3,  # fastest implementation enabled by default
+        #"layer_type": LayerType.MyIMP2,
         #++++++++++++++++++++++++++
         "max_dist": out_dim - 1,
         "newton_k": 0

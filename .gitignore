@@ -16,4 +16,8 @@ data/
 runs/
 
 ### ipynb
-*.ipynb
+.ipynb
+
+### tmp files
+.csv
+.txt

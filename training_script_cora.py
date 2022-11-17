@@ -27,6 +27,7 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
     # node_features shape = (N, FIN), edge_index shape = (2, E) --- [2, E]可能是指impl3
     ###           [2708, 1433]   [2708, 2708] --- 1433: input feature
     graph_data = (node_features, edge_index)  # I pack data into tuples because GAT uses nn.Sequential which requires it
+    softmax = nn.Softmax(dim=1)
 
     def get_node_indices(phase):
         if phase == LoopPhase.TRAIN:
@@ -91,11 +92,15 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
 
         # 超过max_dist的置为max_dist 
         #### 改为置为0
-        max_dist = config['max_dist']
-        true_dist_label[true_dist_label > max_dist] = 0 # torch.Size([28000])
-        ##true_dist_label[true_dist_label == 0] = max_dist # dist_matrix中为0的也应该置为max_dist!!!!!!!!!!!
-
+        max_dist_conn = config['max_dist_conn']
+        true_dist_label[true_dist_label > max_dist_conn] = 0 # torch.Size([28000])
+        true_dist_label[true_dist_label > 0] = 1
         
+        # c1 = torch.sum(true_dist_label)
+        # c0 = MN - c1
+        # print('0: ', c0, '  --- ', np.round(c0/MN, 2))  ### 37%
+        # print('1: ', c1, '  --- ', np.round(c1/MN, 2))  ### 63%
+        # exit()
         ## 把tuple的第0列置为0??
         #tuples_unnormalized_scores[:, 0] = -np.inf
 
@@ -104,7 +109,8 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         to_write = torch.cat((pred_dist_label[:n], true_dist_label[:n]), 0).reshape(2, n)
         np.savetxt('compare.csv', to_write.detach().numpy().T, delimiter=", ", fmt="%i")
         np.savetxt('tuples_scores_before.csv', tuples_unnormalized_scores.detach().numpy(), delimiter=", ", fmt="%-1.3f")
-        #print('End of Func [get_tuple_loss_input]')
+
+        tuples_unnormalized_scores = softmax(tuples_unnormalized_scores)
         return tuples_unnormalized_scores, true_dist_label
 
 
@@ -132,17 +138,16 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
         """
         #nodes_unnormalized_scores = gat(graph_data)[0].index_select(node_dim, node_indices) ### 获取训练集/验证集/测试集样本的emb
         all_nodes_unnormalized_scores = gat(graph_data)[0]
-        nodes_unnormalized_scores = all_nodes_unnormalized_scores.index_select(node_dim, node_indices)
+        #nodes_unnormalized_scores = all_nodes_unnormalized_scores.index_select(node_dim, node_indices)
 
         tuples_unnormalized_scores, true_dist_label = get_tuple_loss_input(phase, all_nodes_unnormalized_scores, device=device)
 
         
         
-        softmax = nn.Softmax(dim=1)
         
         #print('tuples_unnormalized_scores.shape =', tuples_unnormalized_scores.shape)
         #print('softmax_res.shape =', softmax_res.shape)
-        np.savetxt('tuples_scores.txt', softmax(tuples_unnormalized_scores).detach().numpy(), fmt="%-1.3f")
+        np.savetxt('tuples_scores.txt', tuples_unnormalized_scores.detach().numpy(), fmt="%-1.3f")
              
         # Example: let's take an output for a single node on Cora - it's a vector of size 7 and it contains unnormalized
         # scores like: V = [-1.393,  3.0765, -2.4445,  9.6219,  2.1658, -5.5243, -4.6247]
@@ -164,8 +169,8 @@ def get_main_loop(config, gat, cross_entropy_loss, optimizer, node_features, nod
 
         # Finds the index of maximum (unnormalized) score for every node and that's the class prediction for that node.
         # Compare those to true (ground truth) labels and find the fraction of correct predictions -> accuracy metric.
-        class_predictions = torch.argmax(nodes_unnormalized_scores, dim=-1)
-        accuracy = torch.sum(torch.eq(class_predictions, gt_node_labels).long()).item() / len(gt_node_labels)
+        #class_predictions = torch.argmax(nodes_unnormalized_scores, dim=-1)
+        #accuracy = torch.sum(torch.eq(class_predictions, gt_node_labels).long()).item() / len(gt_node_labels)
         tuple_dist_predictions = torch.argmax(tuples_unnormalized_scores, dim=-1)
         accuracy = torch.sum(torch.eq(tuple_dist_predictions, true_dist_label).long()).item() / len(true_dist_label)
         #
@@ -307,7 +312,7 @@ def get_training_args():
     args = parser.parse_args()
 
     # Model architecture related
-    out_dim = 11 ### = max_dist + 1
+    out_dim = 2
     gat_config = {
         "num_of_layers": 2,  # GNNs, contrary to CNNs, are often shallow (it ultimately depends on the graph properties)
         "num_heads_per_layer": [8, 1],
@@ -315,11 +320,12 @@ def get_training_args():
         "add_skip_connection": False,  # hurts perf on Cora
         "bias": True,  # result is not so sensitive to bias
         "dropout": 0.6,  # result is sensitive to dropout
-        "layer_type": LayerType.IMP3,  # fastest implementation enabled by default
-        #"layer_type": LayerType.MyIMP2,
+        # "layer_type": LayerType.IMP3,  # fastest implementation enabled by default
+        "layer_type": LayerType.MyIMP2,
         #++++++++++++++++++++++++++
-        "max_dist": out_dim - 1,
-        "newton_k": 0
+        "max_dist_neigh": 2,
+        "newton_k": 0.6,
+        "max_dist_conn": 7
     }
 
     # Wrapping training configuration into a dictionary

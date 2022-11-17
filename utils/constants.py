@@ -69,12 +69,12 @@ os.makedirs(CHECKPOINTS_PATH, exist_ok=True)
 CORA_PATH = os.path.join(DATA_DIR_PATH, 'cora')  # this is checked-in no need to make a directory
 
 # Thomas Kipf et al. first used this split in GCN paper and later Petar Veličković et al. in GAT paper
-# CORA_TRAIN_RANGE = [0, 140]
-# CORA_VAL_RANGE = [140, 140+500]
-# CORA_TEST_RANGE = [1708, 1708+1000]
-CORA_TRAIN_RANGE = [0, 1400]
-CORA_VAL_RANGE = [1400, 1400+500]
-CORA_TEST_RANGE = [1900, 1708+1000]
+CORA_TRAIN_RANGE = [0, 140]
+CORA_VAL_RANGE = [140, 140+500]
+CORA_TEST_RANGE = [1708, 1708+1000]
+# CORA_TRAIN_RANGE = [0, 1400]
+# CORA_VAL_RANGE = [1400, 1400+500]
+# CORA_TEST_RANGE = [1900, 1708+1000]
 CORA_NUM_INPUT_FEATURES = 1433
 CORA_NUM_CLASSES = 7
 
@@ -96,5 +96,5 @@ PPI_NUM_CLASSES = 121
 
 
 
-CORA_MULTI_TIMES = 10
+CORA_MULTI_TIMES = 1
 CORA_ADD_PER = 0.3

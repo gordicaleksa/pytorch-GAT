@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from utils.constants import LayerType
+from utils.constants import *
 
 
 class GAT(torch.nn.Module):
@@ -24,6 +24,9 @@ class GAT(torch.nn.Module):
         #### 
         GATLayer = get_layer_type(layer_type)  # fetch one of 3 available implementations
         print('### Using layer: ', layer_type)
+        print('### Train Size: ', CORA_TRAIN_RANGE[-1])
+        print('### Output Dim: ', num_features_per_layer[-1])
+        print('### Multi Times: ', CORA_MULTI_TIMES)
         num_heads_per_layer = [1] + num_heads_per_layer  # trick - so that I can nicely create GAT layers below
 
         gat_layers = []  # collect GAT layers
@@ -550,33 +553,35 @@ class GATLayerMyImp2(GATLayer):
         """
 
         #+++++++++++++++++++++++++++++++++++++
-        """  改到score_target那里?? 这样应该是会削弱邻居的特征
-        WD 格式类似于:
-            tensor([[0.7408, 0.7408, 1.0000],
-                    [0.7408, 0.7408, 0.7408],
-                    [1.0000, 0.4066, 0.7408]])
-
-        WD_ij == 1.0 : 在exp之前 D_ij 为 0
         """
-        ## 1. 筛除不相邻 or 跳数距离过大 的节点对
+        WD 格式类似于(假设k = 0.6): 
+            tensor([[1.0000, 0.0907, 0.1653],
+                    [0.0907, 1.0000, 1.0000],
+                    [0.1653, 1.0000, 1.0000]], dtype=torch.float64)  
 
-        mask = connectivity_mask.clone().detach() ## 含自环
-        mask[mask < 1] = 0
-        mask[mask == 1] = -np.inf
+        WD_ij
+        1:      自环 or 相邻, 跳数权重系数为1, 相乘后不变
+        0:      不相连 or 跳数太大, 权重为0, 相乘后为0
+        (0, 1): 跳数在(1, max_dist] 之间, 权重为 exp(-k * (d_ij - 1)), 用于削弱多跳节点的特征
+        """
+        ## 1. softmax原注意力, 使之均为正值, 避免score为负, 乘上 (0, 1) 的权重后反而增强其特征
+        ### 还是需要先mask一下, 不然N太大, score 太小
+        mask = connectivity_mask.detach().clone()
+        mask[mask == 0] = -np.inf
+        mask[mask > 0] = 0
 
-        dense1 = self.softmax(all_scores + mask)
+        ### 计算mask之后的dense
+        dense = self.softmax(all_scores + mask) ## 截至目前, dense == 0: 不相连/跳数过大; dense > 0: 相连/跳数较小
+        ##np.savetxt('dense1.txt', dense[0].detach().numpy(), delimiter=" ", fmt="%-1.4f")
 
-        ## 2. 跳数权重 (自身的不计算)
+        ## 2. 原注意力 * 跳数权重
+        ### 由于broadcast, connectivity_mask会自动由 (N, N) 扩展为 (NH, N, N)
+        dense = dense * connectivity_mask
+        dense[dense == 0] = -np.inf ### 再次将不符合要求的置为-inf
+        ##np.savetxt('dense2.txt', dense[0].detach().numpy(), delimiter=" ", fmt="%-1.4f")
+        all_attention_coefficients = self.softmax(dense)
+        np.savetxt('all_attention_coefficients.txt', all_attention_coefficients[0].detach().numpy(), delimiter="  ", fmt="%-1.10f")
 
-        ### 把WD的对角线置1, 使之不影响self-attn
-        WD = connectivity_mask.clone().detach()
-        WD_n = WD.shape[0]
-        WD[range(WD_n), range(WD_n)] = 1
-
-        ### 原注意力 * 跳数权重
-        dense2 = self.softmax(dense1 * WD)
-
-        all_attention_coefficients = dense2
         #+++++++++++++++++++++++++++++++++++++
 
         #

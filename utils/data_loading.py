@@ -166,7 +166,7 @@ def load_graph_data(training_config, device):
     layer_type = training_config['layer_type']
     should_visualize = training_config['should_visualize']
     #++++++++++++++++++++++++++++++++
-    max_dist = training_config['max_dist']
+    max_dist_neigh = training_config['max_dist_neigh']
     newton_k = training_config['newton_k']
 
     if dataset_name == DatasetType.CORA.name.lower():  # Cora citation network
@@ -199,21 +199,21 @@ def load_graph_data(training_config, device):
         elif layer_type == LayerType.MyIMP2:
             G = nx.from_dict_of_lists(adjacency_list_dict)
             
-            ### 跳数矩阵 D
-            topology = get_dist_matrix(G)
+            ## 1. topo = matrix_dist (N, N)
+            topology = get_dist_matrix(G).astype(np.float64) ### 跳数矩阵 D
             dist_matrix = topology.copy()
-            ### 超过max_dist的置零
-            # dists = topology[:, -1] ## 最后一列dist列
-            # dists[dists > max_dist] = 0 ## 超过max_dist的置零
-            # topology[:, -1] = dists
-            topology[:, -1][topology[:, -1] > max_dist] = 0
-            """
-            在这边先给非对角线的节点加权 取softmax, 再增加自环?????
-            """
-            topology += np.identity(topology.shape[0])  # 增加自环
+            
+            ## 2. 距离过大则认为不相连
+            topology[topology > max_dist_neigh] = 0
 
-            ### 跳数权重矩阵 WD
-            topology = np.exp(topology * -newton_k)  ### exp(-k(d_ij))
+            ## 3. 增加自环
+            topology += np.identity(topology.shape[0])
+
+            ## 4. 计算跳数权重矩阵 WD
+            topology = topology - 1 ### d - 1
+            topology[topology < 0] = np.inf  ### 此时不相连/跳数过大的应为0-1=-1, exp(inf * -k) = exp(-inf) = 0
+
+            topology = np.exp(topology * -newton_k)  ### exp(-inf) = 0
         # ----
         
         elif layer_type == LayerType.IMP2 or layer_type == LayerType.IMP1:
